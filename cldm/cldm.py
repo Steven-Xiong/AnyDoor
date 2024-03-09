@@ -300,7 +300,7 @@ class ControlNet(nn.Module):
             outs.append(zero_conv(h, emb, context))
 
         h_new = self.middle_block(h, emb, context)  
-        outs.append(self.middle_block_out(h_new, emb, context))        
+        outs.append(self.middle_block_out(h_new, emb, context)) 
         return outs
 
 
@@ -309,24 +309,35 @@ class ControlLDM(LatentDiffusion):
     def __init__(self, control_stage_config, control_key, only_mid_control, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.control_model = instantiate_from_config(control_stage_config)
+        # self.control_model_txt = instantiate_from_config(control_stage_config_txt)  # add control_stage_config_txt，与controlnet一致
         self.control_key = control_key
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
-        x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs)
-        control = batch[self.control_key]
+        # import pdb; pdb.set_trace()
+        x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs) #'jpg'  c.shape[16,257,1024] 原本就是jpg
+        # add txt?
+        # import pdb; pdb.set_trace()
+        x, c_txt = super().get_input(batch, self.first_stage_key, cond_key='txt', *args, **kwargs) # [16, 77, 1024]
+        
+        #进行concat:
+        c = torch.cat((c,c_txt),dim=1)  #[B,334,1024]
+        # import pdb; pdb.set_trace()
+        control = batch[self.control_key]  #'hint'  hint替换为layout? 本身就包含了layout信息
+        
         if bs is not None:
             control = control[:bs]
         control = control.to(self.device)
         control = einops.rearrange(control, 'b h w c -> b c h w')
-        control = control.to(memory_format=torch.contiguous_format).float()
+        control = control.to(memory_format=torch.contiguous_format).float() #([B, 4, 512, 512])
         self.time_steps = batch['time_steps']
-        return x, dict(c_crossattn=[c], c_concat=[control])
+        return x, dict(c_crossattn=[c], c_concat=[control])  #, c_txt_crossattn=[c_txt]
 
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
         assert isinstance(cond, dict)
+        # import pdb; pdb.set_trace()
         diffusion_model = self.model.diffusion_model
 
         cond_txt = torch.cat(cond['c_crossattn'], 1)
@@ -334,14 +345,17 @@ class ControlLDM(LatentDiffusion):
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
         else:
-            control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt)
+            control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt)  #这里control concat
             control = [c * scale for c, scale in zip(control, self.control_scales)]
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
         return eps
 
     @torch.no_grad()
     def get_unconditional_conditioning(self, N):
+        # import pdb; pdb.set_trace()
         uncond =  self.get_learned_conditioning([ torch.zeros((1,3,224,224)) ] * N)
+        uncond_txt = self.get_learned_conditioning_txt([""] * N)
+        uncond = torch.cat((uncond,uncond_txt),dim=1)
         return uncond
 
     @torch.no_grad()
@@ -350,8 +364,8 @@ class ControlLDM(LatentDiffusion):
                    plot_diffusion_rows=False, unconditional_guidance_scale=9.0, unconditional_guidance_label=None,
                    use_ema_scope=True,
                    **kwargs):
-        use_ddim = ddim_steps is not None
-
+        use_ddim = ddim_steps is not None   #batch.keys()： ref, jpg,hint,extra_sizes, tar_box_yyxx_crop, time_steps
+        # import pdb; pdb.set_trace()
         log = dict()
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
         c_cat, c = c["c_concat"][0][:N], c["c_crossattn"][0][:N]
@@ -361,13 +375,20 @@ class ControlLDM(LatentDiffusion):
 
         # ==== visualize the shape mask or the high-frequency map ====
         guide_mask = (c_cat[:,-1,:,:].unsqueeze(1) + 1) * 0.5
-        guide_mask = torch.cat([guide_mask,guide_mask,guide_mask],1)
+        guide_mask = torch.cat([guide_mask,guide_mask,guide_mask],1) #[B,2,512,512]
         HF_map  = c_cat[:,:3,:,:] #* 2.0 - 1.0
+        res = c_cat[:,3,:,:]
+        # import pdb; pdb.set_trace()
+        log["control"] = HF_map   #用high frequency map做control
+        log['res'] = torch.cat([res, res, res], dim=1)
 
-        log["control"] = HF_map
-
-        cond_image = batch[self.cond_stage_key].cpu().numpy().copy() 
+        cond_image = batch[self.cond_stage_key].cpu().numpy().copy()   #[16,224,224,3]
         log["conditioning"] = torch.permute( torch.tensor(cond_image), (0,3,1,2)) * 2.0 - 1.0  
+        
+        layout_image = batch['layout'].cpu().numpy().copy()
+        log["layout"] = torch.permute(torch.tensor(layout_image), (0,3,1,2)) * 2.0 - 1.0
+        
+        log["txt"] = log_txt_as_img((512, 512), batch["txt"], size=16)
         if plot_diffusion_rows:
             # get diffusion row
             diffusion_row = list()
@@ -398,6 +419,7 @@ class ControlLDM(LatentDiffusion):
                 log["denoise_row"] = denoise_grid
 
         if unconditional_guidance_scale > 1.0:
+            # import pdb; pdb.set_trace()
             uc_cross = self.get_unconditional_conditioning(N)
             uc_cat = c_cat  # torch.zeros_like(c_cat)
             uc_full = {"c_concat": [uc_cat], "c_crossattn": [uc_cross]}
@@ -413,6 +435,7 @@ class ControlLDM(LatentDiffusion):
 
     @torch.no_grad()
     def sample_log(self, cond, batch_size, ddim, ddim_steps, **kwargs):
+        # import pdb; pdb.set_trace()
         ddim_sampler = DDIMSampler(self)
         b, c, h, w = cond["c_concat"][0].shape
         shape = (self.channels, h // 8, w // 8)
@@ -421,11 +444,15 @@ class ControlLDM(LatentDiffusion):
 
     def configure_optimizers(self):
         lr = self.learning_rate
+        # import pdb; pdb.set_trace()
         params = list(self.control_model.parameters())
         if not self.sd_locked:
             params += list(self.model.diffusion_model.output_blocks.parameters())
             params += list(self.model.diffusion_model.out.parameters())
-        params += list(self.cond_stage_model.projector.parameters())
+        try: #判断一下
+            params += list(self.cond_stage_model.projector.parameters()) #这里是针对dinov2加的
+        except:
+            pass
         opt = torch.optim.AdamW(params, lr=lr)
         return opt
 

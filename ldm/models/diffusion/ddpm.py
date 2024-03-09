@@ -83,6 +83,7 @@ class DDPM(pl.LightningModule):
         self.parameterization = parameterization
         print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
+        self.cond_stage_model_txt = None   # add text emcoding model
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
         self.first_stage_key = first_stage_key
@@ -526,6 +527,7 @@ class LatentDiffusion(DDPM):
     def __init__(self,
                  first_stage_config,
                  cond_stage_config,
+                 cond_stage_config_txt,  # add branch
                  num_timesteps_cond=None,
                  cond_stage_key="image",
                  cond_stage_trainable=False,
@@ -535,6 +537,7 @@ class LatentDiffusion(DDPM):
                  scale_factor=1.0,
                  scale_by_std=False,
                  force_null_conditioning=False,
+                 settxt = False,     # 加控制txt
                  *args, **kwargs):
         self.force_null_conditioning = force_null_conditioning
         self.num_timesteps_cond = default(num_timesteps_cond, 1)
@@ -562,7 +565,12 @@ class LatentDiffusion(DDPM):
         else:
             self.register_buffer('scale_factor', torch.tensor(scale_factor))
         self.instantiate_first_stage(first_stage_config)
+        # import pdb; pdb.set_trace()
         self.instantiate_cond_stage(cond_stage_config)
+        # add txt encoder
+        self.instantiate_cond_stage_txt(cond_stage_config_txt)
+        self.settxt = settxt # use unet encoder for cond image.
+
         self.cond_stage_forward = cond_stage_forward
         self.clip_denoised = False
         self.bbox_tokenizer = None
@@ -620,6 +628,7 @@ class LatentDiffusion(DDPM):
             param.requires_grad = False
 
     def instantiate_cond_stage(self, config):
+        # import pdb; pdb.set_trace()
         if not self.cond_stage_trainable:
             if config == "__is_first_stage__":
                 print("Using first stage also as cond stage.")
@@ -633,6 +642,28 @@ class LatentDiffusion(DDPM):
                 self.cond_stage_model = model.eval()
                 self.cond_stage_model.train = disabled_train
                 for param in self.cond_stage_model.parameters():
+                    param.requires_grad = False
+        else:
+            assert config != '__is_first_stage__'
+            assert config != '__is_unconditional__'
+            model = instantiate_from_config(config)
+            self.cond_stage_model = model
+    # add text:
+    def instantiate_cond_stage_txt(self, config):
+        # import pdb; pdb.set_trace()
+        if not self.cond_stage_trainable:
+            if config == "__is_first_stage__":
+                print("Using first stage also as cond stage.")
+                self.cond_stage_model = self.first_stage_model
+            elif config == "__is_unconditional__":
+                print(f"Training {self.__class__.__name__} as an unconditional model.")
+                self.cond_stage_model = None
+                # self.be_unconditional = True
+            else:
+                model = instantiate_from_config(config)  #只指代embedding
+                self.cond_stage_model_txt = model.eval()
+                self.cond_stage_model_txt.train = disabled_train
+                for param in self.cond_stage_model_txt.parameters():
                     param.requires_grad = False
         else:
             assert config != '__is_first_stage__'
@@ -661,12 +692,18 @@ class LatentDiffusion(DDPM):
             raise NotImplementedError(f"encoder_posterior of type '{type(encoder_posterior)}' not yet implemented")
         return self.scale_factor * z
 
-    def get_learned_conditioning(self, c):
+    def get_learned_conditioning(self, c, c_txt=None):  # 还原加c_txt
         #c 1,3,224,224 
+        # import pdb; pdb.set_trace()
         if self.cond_stage_forward is None:
             if hasattr(self.cond_stage_model, 'encode') and callable(self.cond_stage_model.encode):
+                # if c_txt is not None:
+                #     c_txt = self.cond_stage_config_txt(c_txt)  #提取之后和c concat进去？
                 #1,1,1024
-                c = self.cond_stage_model.encode(c)
+                if c_txt is not None:
+                    c_txt = self.cond_stage_config_txt(c_txt)  #提取之后和c concat进去？
+                # import pdb; pdb.set_trace()
+                c = self.cond_stage_model.encode(c) # [16, 3, 224, 224] --> [16, 257, 1024]
                 if isinstance(c, DiagonalGaussianDistribution):
                     c = c.mode()
             else:
@@ -675,7 +712,22 @@ class LatentDiffusion(DDPM):
             assert hasattr(self.cond_stage_model, self.cond_stage_forward)
             c = getattr(self.cond_stage_model, self.cond_stage_forward)(c)
         return c
-
+    
+    # 还原controlnet的text branch
+    def get_learned_conditioning_txt(self, c):
+        # import pdb; pdb.set_trace()
+        if self.cond_stage_forward is None:
+            if hasattr(self.cond_stage_model_txt, 'encode') and callable(self.cond_stage_model_txt.encode):
+                c = self.cond_stage_model_txt.encode(c)
+                if isinstance(c, DiagonalGaussianDistribution):
+                    c = c.mode()
+            else:
+                c = self.cond_stage_model_txt(c)
+        else:
+            assert hasattr(self.cond_stage_model, self.cond_stage_forward)
+            c = getattr(self.cond_stage_model, self.cond_stage_forward)(c)
+        return c
+    
     def meshgrid(self, h, w):
         y = torch.arange(0, h).view(h, 1, 1).repeat(1, w, 1)
         x = torch.arange(0, w).view(1, w, 1).repeat(h, 1, 1)
@@ -768,30 +820,48 @@ class LatentDiffusion(DDPM):
     @torch.no_grad()
     def get_input(self, batch, k, return_first_stage_outputs=False, force_c_encode=False,
                   cond_key=None, return_original_cond=False, bs=None, return_x=False):
+        # import pdb; pdb.set_trace()
         x = super().get_input(batch, k)
+        # x_in = super().get_input(batch,'txt')
         if bs is not None:
             x = x[:bs]
         x = x.to(self.device)
+
+        # x_in = x_in.to(self.device)
         encoder_posterior = self.encode_first_stage(x)
         z = self.get_first_stage_encoding(encoder_posterior).detach()
+        # import pdb; pdb.set_trace()
 
+        # encode the txt embedding. 这里是加的
+        # if self.settxt:
+        #     # x_in = rearrange(x_in, 'b n c h w -> (b n) c h w').contiguous()
+        #     # x_in = self.encode_first_stage(x_in)  # return a gaussian distribution structurer
+        #     # x_in = self.get_first_stage_encoding(x_in).detach()
+
+        #     x_in = self.get_learned_conditioning(x_in)  # x_in指代txt
+        if self.settxt:
+            cond_key = 'txt'
         if self.model.conditioning_key is not None and not self.force_null_conditioning:
             if cond_key is None:
                 cond_key = self.cond_stage_key
             if cond_key != self.first_stage_key:
+                
                 if cond_key in ['caption', 'coordinates_bbox', "txt"]:
+        
                     xc = batch[cond_key]
                 elif cond_key in ['class_label', 'cls']:
                     xc = batch
                 else:
-                    xc = super().get_input(batch, cond_key).to(self.device)
+                    xc = super().get_input(batch, cond_key).to(self.device) #[16, 3, 224, 224]
             else:
                 xc = x
             if not self.cond_stage_trainable or force_c_encode:
-                if isinstance(xc, dict) or isinstance(xc, list):
-                    c = self.get_learned_conditioning(xc)
+                # import pdb; pdb.set_trace()
+                if isinstance(xc, dict) or isinstance(xc, list):  #txt走这里
+                    c = self.get_learned_conditioning_txt(xc)
+                    # c = self.get_learned_conditioning(xc, x_in)
                 else:
-                    c = self.get_learned_conditioning(xc.to(self.device))
+                    c = self.get_learned_conditioning(xc.to(self.device))  #xc.shape [16,3,224,224]; c.shape[16,257,1024]
             else:
                 c = xc
             if bs is not None:
@@ -801,6 +871,8 @@ class LatentDiffusion(DDPM):
                 pos_x, pos_y = self.compute_latent_shifts(batch)
                 ckey = __conditioning_keys__[self.model.conditioning_key]
                 c = {ckey: c, 'pos_x': pos_x, 'pos_y': pos_y}
+            
+            # c = {'image': c, 'txt': x_in}  #这里要不要索引？
 
         else:
             c = None
@@ -1134,6 +1206,7 @@ class LatentDiffusion(DDPM):
 
     @torch.no_grad()
     def get_unconditional_conditioning(self, batch_size, null_label=None):
+        import pdb; pdb.set_trace()
         if null_label is not None:
             xc = null_label
             if isinstance(xc, ListConfig):
@@ -1176,6 +1249,7 @@ class LatentDiffusion(DDPM):
         n_row = min(x.shape[0], n_row)
         log["inputs"] = x
         log["reconstruction"] = xrec
+        # import pdb; pdb.set_trace()
         if self.model.conditioning_key is not None:
             if hasattr(self.cond_stage_model, "decode"):
                 xc = self.cond_stage_model.decode(c)
@@ -1418,6 +1492,7 @@ class LatentUpscaleDiffusion(LatentDiffusion):
         log["reconstruction"] = xrec
         log["x_lr"] = x_low
         log[f"x_lr_rec_@noise_levels{'-'.join(map(lambda x: str(x), list(noise_level.cpu().numpy())))}"] = x_low_rec
+        # import pdb; pdb.set_trace()
         if self.model.conditioning_key is not None:
             if hasattr(self.cond_stage_model, "decode"):
                 xc = self.cond_stage_model.decode(c)

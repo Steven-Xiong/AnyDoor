@@ -274,8 +274,8 @@ import hubconf
 from omegaconf import OmegaConf
 config_path = './configs/anydoor.yaml'
 config = OmegaConf.load(config_path)
-DINOv2_weight_path = config.model.params.cond_stage_config.weight
-
+DINOv2_weight_path = config.model.params.cond_stage_config.weight  #这里用ID extractor再加
+#对应论文里面的ID extractor  如果text-to-image,就不用这个？
 class FrozenDinoV2Encoder(AbstractEncoder):
     """
     Uses the DINOv2 encoder for image

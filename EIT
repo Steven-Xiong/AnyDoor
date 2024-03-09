@@ -1,0 +1,27 @@
+#cd /storage1/jacobsn/Active/user_x.zhexiao
+bsub -gpu "num=1:gmodel=NVIDIAA40" -Is /bin/bash #interactive mode to ospry
+
+bhosts -w -gpu
+
+make a shell script like this:
+
+duckie_psrl_ppo.sh:
+
+
+
+source ~/.bashrc
+conda activate PSRLEnv
+python parameter_sweeping/syncedPSRL_dqn_sweeping.py --group-id 0 --detach 3
+
+
+
+
+
+activate approriate envionrment
+
+submit job
+bsub <  ./bjob_sh/duckie_psrl_ppo.sh
+
+
+bjobs to check those running
+bkill 

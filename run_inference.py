@@ -264,7 +264,7 @@ if __name__ == '__main__':
 
     test_dir = DConf.Test.VitonHDTest.image_dir
     image_names = os.listdir(test_dir)
-    
+    import pdb; pdb.set_trace()
     for image_name in image_names:
         ref_image_path = os.path.join(test_dir, image_name)
         tar_image_path = ref_image_path.replace('/cloth/', '/image/')
@@ -282,7 +282,7 @@ if __name__ == '__main__':
         tar_mask = Image.open(tar_mask_path ).convert('P')
         tar_mask= np.array(tar_mask)
         tar_mask = tar_mask == 5
-
+        # import pdb; pdb.set_trace()
         gen_image = inference_single_image(ref_image, ref_mask, gt_image.copy(), tar_mask)
         gen_path = os.path.join(save_dir, image_name)
 
