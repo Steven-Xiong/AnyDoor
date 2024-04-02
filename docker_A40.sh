@@ -1,9 +1,9 @@
-# BSUB -o ./bjob_logs/flickr_train_3.31_mvimgnet.%J
+# BSUB -o ./bjob_logs/train_3.31_A40_try.%J
 
 # BSUB -q gpu-compute
-# BSUB -m "a100s-2307.engr.wustl.edu" 
+# BSUB -m "a40-2205.engr.wustl.edu" 
 
-# BSUB -gpu "num=2:mode=shared:j_exclusive=yes:gmodel=NVIDIAA100_SXM4_80GB" 
+# BSUB -gpu "num=4:mode=shared:j_exclusive=yes:gmodel=NVIDIAA40" 
 # BSUB -J anydoor
 
 source ~/.bashrc

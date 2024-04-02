@@ -84,6 +84,7 @@ class DDPM(pl.LightningModule):
         print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
         self.cond_stage_model_txt = None   # add text emcoding model
+        self.grounding_model = None     # 3.12 add grounding model
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
         self.first_stage_key = first_stage_key
@@ -528,6 +529,7 @@ class LatentDiffusion(DDPM):
                  first_stage_config,
                  cond_stage_config,
                  cond_stage_config_txt,  # add branch
+                 cond_stage_config_grounding, # add bbox grounding
                  num_timesteps_cond=None,
                  cond_stage_key="image",
                  cond_stage_trainable=False,
@@ -544,6 +546,7 @@ class LatentDiffusion(DDPM):
         self.scale_by_std = scale_by_std
         assert self.num_timesteps_cond <= kwargs['timesteps']
         # for backwards compatibility after implementation of DiffusionWrapper
+        # import pdb; pdb.set_trace()
         if conditioning_key is None:
             conditioning_key = 'concat' if concat_mode else 'crossattn'
         if cond_stage_config == '__is_unconditional__' and not self.force_null_conditioning:
@@ -569,6 +572,8 @@ class LatentDiffusion(DDPM):
         self.instantiate_cond_stage(cond_stage_config)
         # add txt encoder
         self.instantiate_cond_stage_txt(cond_stage_config_txt)
+        # add grounding encoder：
+        # self.instantiate_cond_stage_grounding(cond_stage_config_grounding)
         self.settxt = settxt # use unet encoder for cond image.
 
         self.cond_stage_forward = cond_stage_forward
@@ -670,6 +675,31 @@ class LatentDiffusion(DDPM):
             assert config != '__is_unconditional__'
             model = instantiate_from_config(config)
             self.cond_stage_model = model
+    
+    # def instantiate_cond_stage_grounding(self, config):
+    #     # import pdb; pdb.set_trace()
+        
+    #     if not self.cond_stage_trainable:
+    #         if config == "__is_first_stage__":
+    #             print("Using first stage also as cond stage.")
+    #             self.cond_stage_model = self.first_stage_model
+    #         elif config == "__is_unconditional__":
+    #             print(f"Training {self.__class__.__name__} as an unconditional model.")
+    #             self.cond_stage_model = None
+    #             # self.be_unconditional = True
+    #         else:
+    #             model = instantiate_from_config(config)  #只指代embedding
+    #             import pdb; pdb.set_trace()
+    #             self.cond_stage_model_grounding = model.eval()
+    #             self.cond_stage_model_grounding.train = disabled_train
+    #             for param in self.cond_stage_model_grounding.parameters():
+    #                 param.requires_grad = False
+    #     else:
+    #         assert config != '__is_first_stage__'
+    #         assert config != '__is_unconditional__'
+    #         model = instantiate_from_config(config)
+    #         import pdb; pdb.set_trace()
+    #         self.cond_stage_model = model
 
     def _get_denoise_row_from_list(self, samples, desc='', force_no_decoder_quantization=False):
         denoise_row = []
@@ -728,6 +758,21 @@ class LatentDiffusion(DDPM):
             c = getattr(self.cond_stage_model, self.cond_stage_forward)(c)
         return c
     
+    # add grounding part
+    # def get_learned_conditioning_grounding(self, c):
+    #     # import pdb; pdb.set_trace()
+    #     if self.cond_stage_forward is None:
+    #         if hasattr(self.cond_stage_model_grounding, 'encode') and callable(self.cond_stage_model_grounding.encode):
+    #             c = self.cond_stage_model_grounding.encode(c)
+    #             if isinstance(c, DiagonalGaussianDistribution):
+    #                 c = c.mode()
+    #         else:
+    #             c = self.cond_stage_model_grounding(c)
+    #     else:
+    #         assert hasattr(self.cond_stage_model, self.cond_stage_forward)
+    #         c = getattr(self.cond_stage_model, self.cond_stage_forward)(c)
+    #     return c
+
     def meshgrid(self, h, w):
         y = torch.arange(0, h).view(h, 1, 1).repeat(1, w, 1)
         x = torch.arange(0, w).view(1, w, 1).repeat(h, 1, 1)
@@ -839,6 +884,7 @@ class LatentDiffusion(DDPM):
         #     # x_in = self.get_first_stage_encoding(x_in).detach()
 
         #     x_in = self.get_learned_conditioning(x_in)  # x_in指代txt
+        # import pdb; pdb.set_trace()
         if self.settxt:
             cond_key = 'txt'
         if self.model.conditioning_key is not None and not self.force_null_conditioning:
@@ -1206,7 +1252,7 @@ class LatentDiffusion(DDPM):
 
     @torch.no_grad()
     def get_unconditional_conditioning(self, batch_size, null_label=None):
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         if null_label is not None:
             xc = null_label
             if isinstance(xc, ListConfig):
@@ -1702,6 +1748,7 @@ class LatentFinetuneDiffusion(LatentDiffusion):
                 log["denoise_row"] = denoise_grid
 
         if unconditional_guidance_scale > 1.0:
+            # import pdb; pdb.set_trace()
             uc_cross = self.get_unconditional_conditioning(N, unconditional_guidance_label)
             uc_cat = c_cat
             uc_full = {"c_concat": [uc_cat], "c_crossattn": [uc_cross]}

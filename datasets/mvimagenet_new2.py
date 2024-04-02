@@ -10,6 +10,8 @@ from .base import BaseDataset,BaseDataset_t2i
 import csv
 import glob
 import matplotlib.pyplot as plt
+
+
 class MVImageNetDataset(BaseDataset_t2i):
     def __init__(self, txt, image_dir):
         with open(txt,"r") as f:
@@ -96,7 +98,7 @@ class MVImageNetDataset(BaseDataset_t2i):
     def get_sample(self, idx):
         # import pdb; pdb.set_trace()
         object_dir = self.data[idx].replace('MVDir/', self.image_dir)
-        #手动加mask dir
+        # 手动加mask dir
         mask_dir = self.data[idx].replace('MVDir/', self.mask_dir).replace('/images','')
     
         frames = os.listdir(object_dir)
@@ -132,10 +134,10 @@ class MVImageNetDataset(BaseDataset_t2i):
         ref_mask = self.get_alpha_mask(ref_mask_path)
         tar_mask = self.get_alpha_mask(tar_mask_path)
         
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         target_index = os.path.join(tar_image_path.split('/')[-4],tar_image_path.split('/')[-3],tar_image_path.split('/')[-2],tar_image_path.split('/')[-1])
         caption = self.caption_index[target_index]
-        
+        # import pdb; pdb.set_trace()
         bbox = self.seg2bbox(np.stack([tar_mask,tar_mask,tar_mask],-1))  #将seg map补全成mask
         # 创建一个全黑的图片
         layout = np.zeros((tar_image.shape[0], tar_image.shape[1], 3), dtype=np.uint8)
@@ -153,10 +155,20 @@ class MVImageNetDataset(BaseDataset_t2i):
         # ref_image_resized = cv2.resize(ref_image_resized.astype(np.uint8), (224,224)).astype(np.uint8) / 255
         # plt.imsave('ref_img_resized.jpg',item_with_collage['ref'])
         # item_with_collage['ref'] = ref_image_resized  #这样不对。应该剪裁居中并抠图，放进han'hu
+        item_with_collage['anno_id'] = target_index
         item_with_collage['txt'] = caption
         sampled_time_steps = self.sample_timestep()
         
         item_with_collage['time_steps'] = sampled_time_steps
+        
+        # add new keys
+        item_with_collage['txt_embeddings'] = np.zeros((30,768))
+        #除了第一个其他都是0？
+        array = np.zeros(30)
+        array[0] = 1
+        item_with_collage['masks'] = array
+        item_with_collage['boxes'] = np.concatenate((bbox, np.zeros(29,4)), axis=0) 
+        
 
         return item_with_collage
 

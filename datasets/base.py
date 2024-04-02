@@ -610,7 +610,7 @@ class BaseDataset_t2i(Dataset):
         ref_mask_compose = cv2.resize(ref_mask_compose.astype(np.uint8), (x2-x1, y2-y1))
         ref_mask_compose = (ref_mask_compose > 128).astype(np.uint8)
         # import pdb; pdb.set_trace()
-        collage = np.zeros(cropped_target_image.shape, dtype=np.uint8)
+        collage = np.ones(cropped_target_image.shape, dtype=np.uint8)  #改成ones？
         # collage = cropped_target_image.copy()   #这里collage是否改为不要背景？ 
 
         collage[y1:y2,x1:x2,:] = ref_image_collage

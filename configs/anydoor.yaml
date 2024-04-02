@@ -88,3 +88,8 @@ model:
         freeze: True
         layer: "penultimate"
    
+    # from GLIGEN
+    cond_stage_config_grounding:
+      target: grounding_input.text_image_grounding_tokinzer_input.GroundingNetInput
+      grounding_tokenizer_input:
+        target: grounding_input.text_image_grounding_tokinzer_input.GroundingNetInput

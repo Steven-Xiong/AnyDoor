@@ -88,6 +88,144 @@ def zero_module(module):
 def Normalize(in_channels):
     return torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
+class SelfAttention(nn.Module):
+    def __init__(self, query_dim, heads=8, dim_head=64, dropout=0.):
+        super().__init__()
+        inner_dim = dim_head * heads
+        self.scale = dim_head ** -0.5
+        self.heads = heads
+
+        self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
+        self.to_k = nn.Linear(query_dim, inner_dim, bias=False)
+        self.to_v = nn.Linear(query_dim, inner_dim, bias=False)
+
+        self.to_out = nn.Sequential(nn.Linear(inner_dim, query_dim), nn.Dropout(dropout) )
+
+    def forward(self, x):
+        q = self.to_q(x) # B*N*(H*C)
+        k = self.to_k(x) # B*N*(H*C)
+        v = self.to_v(x) # B*N*(H*C)
+
+        B, N, HC = q.shape 
+        H = self.heads
+        C = HC // H 
+
+        q = q.view(B,N,H,C).permute(0,2,1,3).reshape(B*H,N,C) # (B*H)*N*C
+        k = k.view(B,N,H,C).permute(0,2,1,3).reshape(B*H,N,C) # (B*H)*N*C
+        v = v.view(B,N,H,C).permute(0,2,1,3).reshape(B*H,N,C) # (B*H)*N*C
+
+        sim = torch.einsum('b i c, b j c -> b i j', q, k) * self.scale  # (B*H)*N*N
+        attn = sim.softmax(dim=-1) # (B*H)*N*N
+
+        out = torch.einsum('b i j, b j c -> b i c', attn, v) # (B*H)*N*C
+        out = out.view(B,H,N,C).permute(0,2,1,3).reshape(B,N,(H*C)) # B*N*(H*C)
+
+        return self.to_out(out)
+
+class CrossAttention(nn.Module):
+    def __init__(self, query_dim, key_dim, value_dim, heads=8, dim_head=64, dropout=0):
+        super().__init__()
+        inner_dim = dim_head * heads
+        self.scale = dim_head ** -0.5
+        self.heads = heads
+
+
+        self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
+        self.to_k = nn.Linear(key_dim, inner_dim, bias=False)
+        self.to_v = nn.Linear(value_dim, inner_dim, bias=False)
+
+
+        self.to_out = nn.Sequential( nn.Linear(inner_dim, query_dim), nn.Dropout(dropout) )
+
+
+    def fill_inf_from_mask(self, sim, mask):
+        if mask is not None:
+            B,M = mask.shape
+            mask = mask.unsqueeze(1).repeat(1,self.heads,1).reshape(B*self.heads,1,-1)
+            max_neg_value = -torch.finfo(sim.dtype).max
+            sim.masked_fill_(~mask, max_neg_value)
+        return sim 
+
+
+    def forward(self, x, key, value, mask=None):
+
+        q = self.to_q(x)     # B*N*(H*C)
+        k = self.to_k(key)   # B*M*(H*C)
+        v = self.to_v(value) # B*M*(H*C)
+   
+        B, N, HC = q.shape 
+        _, M, _ = key.shape
+        H = self.heads
+        C = HC // H 
+
+        q = q.view(B,N,H,C).permute(0,2,1,3).reshape(B*H,N,C) # (B*H)*N*C
+        k = k.view(B,M,H,C).permute(0,2,1,3).reshape(B*H,M,C) # (B*H)*M*C
+        v = v.view(B,M,H,C).permute(0,2,1,3).reshape(B*H,M,C) # (B*H)*M*C
+
+        sim = torch.einsum('b i d, b j d -> b i j', q, k) * self.scale # (B*H)*N*M
+        self.fill_inf_from_mask(sim, mask)
+        attn = sim.softmax(dim=-1) # (B*H)*N*M
+
+        out = torch.einsum('b i j, b j d -> b i d', attn, v) # (B*H)*N*C
+        out = out.view(B,H,N,C).permute(0,2,1,3).reshape(B,N,(H*C)) # B*N*(H*C)
+
+        return self.to_out(out)
+
+class GatedSelfAttentionDense(nn.Module):
+    def __init__(self, query_dim, context_dim,  n_heads, d_head):
+        super().__init__()
+        
+        # we need a linear projection since we need cat visual feature and obj feature
+        self.linear = nn.Linear(context_dim, query_dim)
+
+        self.attn = SelfAttention(query_dim=query_dim, heads=n_heads, dim_head=d_head)
+        self.ff = FeedForward(query_dim, glu=True)
+
+        self.norm1 = nn.LayerNorm(query_dim)
+        self.norm2 = nn.LayerNorm(query_dim)
+
+        self.register_parameter('alpha_attn', nn.Parameter(torch.tensor(0.)) )
+        self.register_parameter('alpha_dense', nn.Parameter(torch.tensor(0.)) )
+
+        # this can be useful: we can externally change magnitude of tanh(alpha)
+        # for example, when it is set to 0, then the entire model is same as original one 
+        self.scale = 1  
+
+
+    def forward(self, x, objs):
+        # import pdb; pdb.set_trace()
+        N_visual = x.shape[1]
+        objs = self.linear(objs)
+
+        x = x + self.scale*torch.tanh(self.alpha_attn) * self.attn(  self.norm1(torch.cat([x,objs],dim=1))  )[:,0:N_visual,:]
+        x = x + self.scale*torch.tanh(self.alpha_dense) * self.ff( self.norm2(x) )  
+        
+        return x 
+
+# 对text grounding 做 gated crossattention
+class GatedCrossAttentionDense(nn.Module):
+    def __init__(self, query_dim, key_dim, value_dim, n_heads, d_head):
+        super().__init__()
+        
+        self.attn = CrossAttention(query_dim=query_dim, key_dim=key_dim,  value_dim=value_dim, heads=n_heads, dim_head=d_head) 
+        self.ff = FeedForward(query_dim, glu=True)
+
+        self.norm1 = nn.LayerNorm(query_dim)
+        self.norm2 = nn.LayerNorm(query_dim)
+
+        self.register_parameter('alpha_attn', nn.Parameter(torch.tensor(0.)) )
+        self.register_parameter('alpha_dense', nn.Parameter(torch.tensor(0.)) )
+
+        # this can be useful: we can externally change magnitude of tanh(alpha)
+        # for example, when it is set to 0, then the entire model is same as original one 
+        self.scale = 1  
+
+    def forward(self, x, objs):
+
+        x = x + self.scale*torch.tanh(self.alpha_attn) * self.attn( self.norm1(x), objs, objs)  
+        x = x + self.scale*torch.tanh(self.alpha_dense) * self.ff( self.norm2(x) ) 
+        
+        return x 
 
 class SpatialSelfAttention(nn.Module):
     def __init__(self, in_channels):
@@ -142,56 +280,56 @@ class SpatialSelfAttention(nn.Module):
         return x+h_
 
 
-class CrossAttention(nn.Module):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.):
-        super().__init__()
-        inner_dim = dim_head * heads
-        context_dim = default(context_dim, query_dim)
+# class CrossAttention(nn.Module):
+#     def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.):
+#         super().__init__()
+#         inner_dim = dim_head * heads
+#         context_dim = default(context_dim, query_dim)
 
-        self.scale = dim_head ** -0.5
-        self.heads = heads
+#         self.scale = dim_head ** -0.5
+#         self.heads = heads
 
-        self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
-        self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
-        self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
+#         self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
+#         self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
+#         self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
 
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, query_dim),
-            nn.Dropout(dropout)
-        )
+#         self.to_out = nn.Sequential(
+#             nn.Linear(inner_dim, query_dim),
+#             nn.Dropout(dropout)
+#         )
 
-    def forward(self, x, context=None, mask=None):
-        h = self.heads
+#     def forward(self, x, context=None, mask=None):
+#         h = self.heads
 
-        q = self.to_q(x)
-        context = default(context, x)
-        k = self.to_k(context)
-        v = self.to_v(context)
+#         q = self.to_q(x)
+#         context = default(context, x)
+#         k = self.to_k(context)
+#         v = self.to_v(context)
 
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
+#         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
 
-        # force cast to fp32 to avoid overflowing
-        if _ATTN_PRECISION =="fp32":
-            with torch.autocast(enabled=False, device_type = 'cuda'):
-                q, k = q.float(), k.float()
-                sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
-        else:
-            sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+#         # force cast to fp32 to avoid overflowing
+#         if _ATTN_PRECISION =="fp32":
+#             with torch.autocast(enabled=False, device_type = 'cuda'):
+#                 q, k = q.float(), k.float()
+#                 sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+#         else:
+#             sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
         
-        del q, k
+#         del q, k
     
-        if exists(mask):
-            mask = rearrange(mask, 'b ... -> b (...)')
-            max_neg_value = -torch.finfo(sim.dtype).max
-            mask = repeat(mask, 'b j -> (b h) () j', h=h)
-            sim.masked_fill_(~mask, max_neg_value)
+#         if exists(mask):
+#             mask = rearrange(mask, 'b ... -> b (...)')
+#             max_neg_value = -torch.finfo(sim.dtype).max
+#             mask = repeat(mask, 'b j -> (b h) () j', h=h)
+#             sim.masked_fill_(~mask, max_neg_value)
 
-        # attention, what we cannot get enough of
-        sim = sim.softmax(dim=-1)
+#         # attention, what we cannot get enough of
+#         sim = sim.softmax(dim=-1)
 
-        out = einsum('b i j, b j d -> b i d', sim, v)
-        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
-        return self.to_out(out)
+#         out = einsum('b i j, b j d -> b i d', sim, v)
+#         out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
+#         return self.to_out(out)
 
 
 class MemoryEfficientCrossAttention(nn.Module):
@@ -242,7 +380,7 @@ class MemoryEfficientCrossAttention(nn.Module):
         )
         return self.to_out(out)
 
-
+# TODO: key dim是啥
 class BasicTransformerBlock(nn.Module):
     ATTENTION_MODES = {
         "softmax": CrossAttention,  # vanilla attention
@@ -264,12 +402,28 @@ class BasicTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(dim)
         self.norm3 = nn.LayerNorm(dim)
         self.checkpoint = checkpoint
+        # add GLIGEN
+        # import pdb; pdb.set_trace()
+        fuser_type = "gatedCA" # 对text grounding 用cross attention
+        if fuser_type == "gatedSA":
+            # note key_dim here actually is context_dim
+            self.fuser = GatedSelfAttentionDense(query_dim=dim, context_dim=context_dim, n_heads=n_heads, d_head=d_head) 
+        elif fuser_type == "gatedSA2":
+            # note key_dim here actually is context_dim
+            self.fuser = GatedSelfAttentionDense2(query_dim, key_dim, n_heads, d_head) 
+        elif fuser_type == "gatedCA":
+            self.fuser = GatedCrossAttentionDense(query_dim=dim, key_dim=context_dim, value_dim=context_dim, n_heads=n_heads, d_head=d_head) 
+        else:
+            assert False 
 
-    def forward(self, x, context=None):
-        return checkpoint(self._forward, (x, context), self.parameters(), self.checkpoint)
+    def forward(self, x, context=None, objs=None):
+        return checkpoint(self._forward, (x, context,objs), self.parameters(), self.checkpoint)  # add objs
 
-    def _forward(self, x, context=None):
+    def _forward(self, x, context=None, objs=None): # add objs
+        # import pdb; pdb.set_trace()
         x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
+        # add fuser
+        x = self.fuser(x, objs) # identity mapping in the beginning 
         x = self.attn2(self.norm2(x), context=context) + x
         x = self.ff(self.norm3(x)) + x
         return x
@@ -318,10 +472,12 @@ class SpatialTransformer(nn.Module):
             self.proj_out = zero_module(nn.Linear(in_channels, inner_dim))
         self.use_linear = use_linear
 
-    def forward(self, x, context=None):
+    def forward(self, x, context=None, objs=None):
         # note: if no context is given, cross-attention defaults to self-attention
         if not isinstance(context, list):
             context = [context]
+        if not isinstance(objs, list):
+            objs = [objs]
         b, c, h, w = x.shape
         x_in = x
         x = self.norm(x)
@@ -330,12 +486,15 @@ class SpatialTransformer(nn.Module):
         x = rearrange(x, 'b c h w -> b (h w) c').contiguous()
         if self.use_linear:
             x = self.proj_in(x)
+        # import pdb; pdb.set_trace()
         for i, block in enumerate(self.transformer_blocks):
-            x = block(x, context=context[i])
+            x = block(x, context=context[i],objs=objs[i])
         if self.use_linear:
             x = self.proj_out(x)
         x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w).contiguous()
         if not self.use_linear:
             x = self.proj_out(x)
         return x + x_in
+
+# from GLIGEN 需要改这里的整个函数
 

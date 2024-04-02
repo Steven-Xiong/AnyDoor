@@ -16,7 +16,22 @@ import numpy as np
 from einops import repeat
 
 from ldm.util import instantiate_from_config
+# add fourier embedder
+class FourierEmbedder():
+    def __init__(self, num_freqs=64, temperature=100):
 
+        self.num_freqs = num_freqs
+        self.temperature = temperature
+        self.freq_bands = temperature ** ( torch.arange(num_freqs) / num_freqs )  
+
+    @ torch.no_grad()
+    def __call__(self, x, cat_dim=-1):
+        "x: arbitrary shape of tensor. dim: cat dim"
+        out = []
+        for freq in self.freq_bands:
+            out.append( torch.sin( freq*x ) )
+            out.append( torch.cos( freq*x ) )
+        return torch.cat(out, cat_dim)
 
 def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3):
     if schedule == "linear":

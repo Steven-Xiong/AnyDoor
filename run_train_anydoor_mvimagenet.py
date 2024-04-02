@@ -4,7 +4,7 @@ from datasets.ytb_vos import YoutubeVOSDataset
 from datasets.ytb_vis import YoutubeVISDataset
 from datasets.saliency_modular import SaliencyDataset
 from datasets.vipseg import VIPSegDataset
-from datasets.mvimagenet_new import MVImageNetDataset
+from datasets.mvimagenet_new2 import MVImageNetDataset
 from datasets.sam import SAMDataset
 from datasets.uvo import UVODataset
 from datasets.uvo_val import UVOValDataset
@@ -26,8 +26,8 @@ if save_memory:
 # Configs
 # resume_path = 'checkpoints/control_sd21_ini.ckpt' #'path/to/weight'
 resume_path = 'checkpoints/epoch=1-step=8687.ckpt'
-batch_size = 8 #16
-logger_freq = 500   #1000
+batch_size = 4 #16
+logger_freq = 100   #1000
 learning_rate = 1e-5
 sd_locked = False
 only_mid_control = False
@@ -60,6 +60,7 @@ dataset5 = MVImageNetDataset(**DConf.Train.MVImageNet)
 
 # dataset5.getitem(1)
 # dataset12.get_sample(1)
+# import pdb; pdb.set_trace()
 image_data = [dataset5]
 # video_data = [dataset1, dataset3, dataset4, dataset7, dataset9, dataset10 ]
 # tryon_data = [dataset8]

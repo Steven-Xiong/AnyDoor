@@ -76,12 +76,12 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     support it as an extra input.
     """
 
-    def forward(self, x, emb, context=None):
+    def forward(self, x, emb, context=None, objs=None):
         for layer in self:
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
             elif isinstance(layer, SpatialTransformer):
-                x = layer(x, context)
+                x = layer(x, context, objs)
             else:
                 x = layer(x)
         return x
@@ -469,6 +469,7 @@ class UNetModel(nn.Module):
         num_attention_blocks=None,
         disable_middle_self_attn=False,
         use_linear_in_transformer=False,
+        fuser_type=None,
     ):
         super().__init__()
         if use_spatial_transformer:
@@ -734,6 +735,11 @@ class UNetModel(nn.Module):
             conv_nd(dims, model_channels, n_embed, 1),
             #nn.LogSoftmax(dim=1)  # change to cross_entropy and produce non-normalized logits
         )
+        # add positionet
+        
+        # self.position_net = PositionNet(positive_len=positive_len, out_dim=context_dim)
+        # import pdb; pdb.set_trace()
+        # self.position_net = instantiate_from_config(grounding_tokenizer) 
 
     def convert_to_fp16(self):
         """
@@ -750,8 +756,24 @@ class UNetModel(nn.Module):
         self.input_blocks.apply(convert_module_to_f32)
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
+    
+    def restore_first_conv_from_SD(self):
+        if self.first_conv_restorable:
+            device = self.input_blocks[0][0].weight.device
 
-    def forward(self, x, timesteps=None, context=None, y=None,**kwargs):
+            SD_weights = th.load("SD_input_conv_weight_bias.pth")
+            self.GLIGEN_first_conv_state_dict = deepcopy(self.input_blocks[0][0].state_dict())
+
+            self.input_blocks[0][0] = conv_nd(2, 4, 320, 3, padding=1)
+            self.input_blocks[0][0].load_state_dict(SD_weights)
+            self.input_blocks[0][0].to(device)
+
+            self.first_conv_type = "SD"
+        else:
+            print("First conv layer is not restorable and skipped this process, probably because this is an inpainting model?")
+
+    # with position net
+    def forward(self, x, timesteps=None, context=None,objs=None, y=None,**kwargs):
         """
         Apply the model to an input batch.
         :param x: an [N x C x ...] Tensor of inputs.
@@ -760,6 +782,11 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
+        # add objs?
+        # Grounding tokens: B*N*C
+        # objs = self.position_net( **grounding_input ) 
+
+
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
@@ -772,13 +799,14 @@ class UNetModel(nn.Module):
             emb = emb + self.label_emb(y)
 
         h = x.type(self.dtype)
+        # import pdb; pdb.set_trace()
         for module in self.input_blocks:
-            h = module(h, emb, context)
+            h = module(h, emb, context, objs) #
             hs.append(h)
-        h = self.middle_block(h, emb, context)
+        h = self.middle_block(h, emb, context, objs) #, objs
         for module in self.output_blocks:
             h = th.cat([h, hs.pop()], dim=1)
-            h = module(h, emb, context)
+            h = module(h, emb, context, objs) #, objs
         h = h.type(x.dtype)
         if self.predict_codebook_ids:
             return self.id_predictor(h)
