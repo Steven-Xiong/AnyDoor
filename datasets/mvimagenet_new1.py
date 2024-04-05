@@ -41,13 +41,13 @@ class MVImageNetDataset(BaseDataset_t2i):
         #     image_count += len(glob.glob(folder.replace('MVDir/', self.image_dir)))
         # import pdb; pdb.set_trace()
         
-        # version = "openai/clip-vit-large-patch14"
-        # self.clip_model = CLIPModel.from_pretrained(version) #.cuda()
-        # self.processor = CLIPProcessor.from_pretrained(version)
-        # self.transform_to_pil = transforms.ToPILImage()
-        # # import pdb; pdb.set_trace()
-        # self.get_clip_feature = get_clip_feature(model=self.clip_model, processor=self.processor,input=None, is_image=True)
-        # self.projection_matrix = torch.load('projection_matrix') #.cuda()
+        version = "openai/clip-vit-large-patch14"
+        self.clip_model = CLIPModel.from_pretrained(version) #.cuda()
+        self.processor = CLIPProcessor.from_pretrained(version)
+        self.transform_to_pil = transforms.ToPILImage()
+        # import pdb; pdb.set_trace()
+        self.get_clip_feature = get_clip_feature(model=self.clip_model, processor=self.processor,input=None, is_image=True)
+        self.projection_matrix = torch.load('projection_matrix') #.cuda()
         
     def __len__(self):
         image_count = 0
@@ -221,39 +221,44 @@ class MVImageNetDataset(BaseDataset_t2i):
         
         # add image embeddings和text embeddings
         # import pdb; pdb.set_trace()
-        # which_layer_text = 'before'
-        # which_layer_image = 'after_reproject'
-        # input=torch.from_numpy(item_with_collage['ref']).permute(2,0,1)
-        # if isinstance(input, list):
-        #     if None in input: return None
-        # else:
-        #     if input == None: return None  
-        # image = self.transform_to_pil(input).convert("RGB")
+        which_layer_text = 'before'
+        which_layer_image = 'after_reproject'
+        input=torch.from_numpy(item_with_collage['ref']).permute(2,0,1)
+        if isinstance(input, list):
+            if None in input: return None
+        else:
+            if input == None: return None  
+        image = self.transform_to_pil(input).convert("RGB")
         
-        # # image = Image.open(input).convert("RGB")
-        # inputs = self.processor(images=[image],  return_tensors="pt", padding=True)
-        # inputs['pixel_values'] = inputs['pixel_values'] #.cuda() # we use our own preprocessing without center_crop 
-        # inputs['input_ids'] = torch.tensor([[0,1,2,3]]) #.cuda()  # placeholder
-        # outputs = self.clip_model(**inputs)
-        # feature = outputs.image_embeds 
-        # if which_layer_image == 'after_reproject':
-        #     feature = project( feature, self.projection_matrix.T ).squeeze(0)
-        #     feature = ( feature / feature.norm() )  * 28.7 
-        #     ref_embedding= feature.unsqueeze(0)
+        # image = Image.open(input).convert("RGB")
+        inputs = self.processor(images=[image],  return_tensors="pt", padding=True)
+        inputs['pixel_values'] = inputs['pixel_values'] #.cuda() # we use our own preprocessing without center_crop 
+        inputs['input_ids'] = torch.tensor([[0,1,2,3]]) #.cuda()  # placeholder
+        outputs = self.clip_model(**inputs)
+        feature = outputs.image_embeds 
+        if which_layer_image == 'after_reproject':
+            feature = project( feature, self.projection_matrix.T ).squeeze(0)
+            feature = ( feature / feature.norm() )  * 28.7 
+            ref_embedding= feature.unsqueeze(0)
         
-        # item_with_collage['image_embeddings'] = np.concatenate((ref_embedding.cpu().detach().numpy(), np.zeros((29, 768))), axis=0)
+        item_with_collage['image_embeddings'] = np.concatenate((ref_embedding.cpu().detach().numpy(), np.zeros((29, 768))), axis=0)
         
-        '''
-        ref_embedding = self.get_clip_feature(input=torch.from_numpy(item_with_collage['ref']).permute(2,0,1),  is_image=True).cpu().detach().numpy()
-        item_with_collage['image_embeddings'] = np.concatenate((ref_embedding, np.zeros((29, 768))), axis=0)
-        '''
-        # item_with_collage['txt_embeddings'] = get_clip_feature(self.clip_model, self.processor, torch.from_numpy(caption),  is_image=False)
-        item_with_collage['txt_embeddings'] = np.zeros((30,768))
+        
+        # ref_embedding = self.get_clip_feature(input=torch.from_numpy(item_with_collage['ref']).permute(2,0,1), is_image=True).cpu().detach().numpy()
+        # item_with_collage['image_embeddings'] = np.concatenate((ref_embedding, np.zeros((29, 768))), axis=0)
+        
+        # add new keys
+        item_with_collage['text_embeddings'] = np.zeros((30,768))
         #除了第一个其他都是0？
-        array = np.zeros(30)
+        array = np.zeros(30,dtype=np.int32)
         array[0] = 1
-        item_with_collage['masks'] = array
-        item_with_collage['boxes'] = np.concatenate((bbox, np.zeros(29,4)), axis=0) 
+        item_with_collage['masks'] = array #.reshape(30,1)
+        # nimport pdb; pdb.set_trace()
+        # bbox需要归一化
+        bbox = np.array(bbox,dtype=np.float32)
+        bbox[0],bbox[1],bbox[2], bbox[3] = bbox[0]/tar_image.shape[0], bbox[1]/tar_image.shape[1], bbox[2]/tar_image.shape[0],bbox[3]/tar_image.shape[1]
+        item_with_collage['boxes'] = np.concatenate((bbox.reshape(1,4), np.zeros((29,4))), axis=0) 
+        item_with_collage['layout_all'] = item_with_collage['layout']
         
         return item_with_collage
 

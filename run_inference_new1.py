@@ -13,7 +13,7 @@ cv2.ocl.setUseOpenCL(False)
 import albumentations as A
 from omegaconf import OmegaConf
 from PIL import Image
-from cldm.cldm import PositionNet_txt,PositionNet_dino_image2
+from cldm.cldm import PositionNet_txt,PositionNet_dino_image2,PositionNet_dino_image3
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 
 def aug_data_mask(image, mask):
@@ -251,7 +251,7 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     c_image = model.get_learned_conditioning( clip_input )   # [1,257,1024]
     c_txt = model.get_learned_conditioning_txt(caption)      # [1,77,1024]
     position_net = PositionNet_txt(in_dim=768, out_dim=1024).cuda()
-    position_net_image = PositionNet_dino_image2(in_dim=1024, out_dim=1024).cuda()  #试一试不对patch只对image ground
+    position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024).cuda()  #试一试不对patch只对image ground
     c_txt_ground = position_net(item['boxes'].cuda(), item['masks'].cuda(), item['text_embeddings'].cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
     
     DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'}).cuda()
@@ -260,14 +260,19 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
     c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
     # import pdb; pdb.set_trace()
-    c = torch.cat((c_image,c_txt),dim=1) 
+    # c = torch.cat((c_image,c_txt),dim=1) 
 
     guess_mode = False
     H,W = 512,512
     
     c_txt_ground1 = position_net(torch.zeros(item['boxes'].shape).cuda(), torch.zeros(item['masks'].shape).cuda(), torch.zeros(item['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
     txt_ground1 = c_txt_ground1[:,:1,:]
-    
+    # import pdb; pdb.set_trace()
+    c_image_ground_new = position_net_image(item['box_ref'].cuda(), item['image_mask_ref'].cuda(), image_embeddings_ref)
+    # 3.31尝试：用原来的c
+    c = c_image_ground_new
+    # c = c_image
+        
     control = control.to(device)
     c = c.to(device)
     c_txt_all = c_txt_all.to(device)
@@ -420,7 +425,7 @@ clipmodel, preprocess = clip.load("ViT-B/32", device=device)
 dinomodel = ViTModel.from_pretrained('facebook/dino-vits16').to(device)
 
 from torchmetrics.multimodal.clip_score import CLIPScore  #clip-T
-metric = CLIPScore(model_name_or_path="openai/clip-vit-base-patch16")
+metric = CLIPScore(model_name_or_path="openai/clip-vit-base-patch32")
 
 
 import pytorch_lightning as pl
@@ -452,57 +457,7 @@ def calculate_clip_score(images, prompts):
 # CLIP-I计算标准： CLIP-I is the average pairwise cosine similarity between CLIP embeddings of generated and real images.
 # CLIP-T计算标准： The second important aspect to evaluate is prompt fidelity, measured as the average cosine similarity between prompt and image CLIP embeddings. We denote this as CLIP-T
 if __name__ == '__main__': 
-    '''
-    # ==== Example for inferring a single image ===
-    reference_image_path = './examples/TestDreamBooth/FG/01.png'
-    bg_image_path = './examples/TestDreamBooth/BG/000000309203_GT.png'
-    bg_mask_path = './examples/TestDreamBooth/BG/000000309203_mask.png'
-    save_path = './examples/TestDreamBooth/GEN/gen_res.png'
 
-    # reference image + reference mask
-    # You could use the demo of SAM to extract RGB-A image with masks
-    # https://segment-anything.com/demo
-    image = cv2.imread( reference_image_path, cv2.IMREAD_UNCHANGED)
-    mask = (image[:,:,-1] > 128).astype(np.uint8)
-    image = image[:,:,:-1]
-    image = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
-    ref_image = image 
-    ref_mask = mask
-
-    # background image
-    back_image = cv2.imread(bg_image_path).astype(np.uint8)
-    back_image = cv2.cvtColor(back_image, cv2.COLOR_BGR2RGB)
-
-    # background mask 
-    tar_mask = cv2.imread(bg_mask_path)[:,:,0] > 128
-    tar_mask = tar_mask.astype(np.uint8)
-    
-    gen_image = inference_single_image(ref_image, ref_mask, back_image.copy(), tar_mask)
-    h,w = back_image.shape[0], back_image.shape[0]
-    ref_image = cv2.resize(ref_image, (w,h))
-    vis_image = cv2.hconcat([ref_image, back_image, gen_image])
-    
-    cv2.imwrite(save_path, vis_image [:,:,::-1])
-    '''
-    #'''
-    # ==== Example for inferring VITON-HD Test dataset ===
-
-    
-    # DConf = OmegaConf.load('./configs/datasets.yaml')
-    # save_dir = './Lvis_val_try1'
-    # if not os.path.exists(save_dir):
-    #     os.mkdir(save_dir)
-
-    # test_dir = DConf.Test.VitonHDTest.image_dir
-    # image_names = os.listdir(test_dir)
-    
-
-    # test_dir = DConf.Test.Lvis.image_dir
-
-    # dataset12 = LvisDataset_val(**DConf.Test.Lvis)
-    # image_data = [dataset12]
-    # dataset = ConcatDataset(image_data)
-    # dataloader = DataLoader(dataset, num_workers=4, batch_size=1, shuffle=False)
     
     # import pdb; pdb.set_trace()
     config = OmegaConf.load('./configs/inference.yaml')
@@ -515,11 +470,12 @@ if __name__ == '__main__':
     ddim_sampler = DDIMSampler(model)
 
     DConf = OmegaConf.load('./configs/datasets.yaml')
-    time = '3.31'
+    time = '4.3'
     save_dir_gen = 'output/'+ time + '/flickr_gen'
     save_dir_gt = 'output/'+ time +'/flickr_gt'
     save_dir_ref = 'output/'+ time +'/flickr_ref'
     save_dir_layout = 'output/'+ time + '/flickr_layout'
+    save_dir_all = 'output/'+ time + '/flickr_all'
     caption_path = 'output/'+ time +'/flickr_caption.txt'
     if not os.path.exists(save_dir_gen):
         # import pdb; pdb.set_trace()
@@ -529,7 +485,9 @@ if __name__ == '__main__':
     if not os.path.exists(save_dir_ref):
         os.mkdir(save_dir_ref)    
     if not os.path.exists(save_dir_layout):
-        os.mkdir(save_dir_layout)    
+        os.mkdir(save_dir_layout)   
+    if not os.path.exists(save_dir_all):
+        os.mkdir(save_dir_all)    
     # test_dataset_repeats = config.test_dataset_repeats if 'train_dataset_repeats' in config else None
     dataset_test = ConCatDataset(config.test_dataset_names, 'DATA', train=False, repeats=None)
     dataloader = DataLoader(dataset_test, num_workers=4, batch_size=1, shuffle=False)
@@ -543,11 +501,22 @@ if __name__ == '__main__':
     if save_memory:
         enable_sliced_attention()
 
-
+    import torch
+    from PIL import Image
+    from transformers import AutoImageProcessor,AutoProcessor, CLIPModel, AutoModel
+    import torch.nn as nn
+    device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+    clipprocessor = AutoProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    clipmodel = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+    dinoprocessor = AutoImageProcessor.from_pretrained('facebook/dinov2-base')
+    dinomodel = AutoModel.from_pretrained('facebook/dinov2-base').to(device)
+    from torchvision import transforms
+    from PIL import Image
+    
     # import pdb; pdb.set_trace()
     for i, batch in enumerate(dataloader):
-        if i >3:
-            break
+        # if i >3:
+        #     break
         # print(batch.keys())
         # batch.cuda()
         # import pdb; pdb.set_trace()
@@ -558,33 +527,84 @@ if __name__ == '__main__':
         
         gen_image = inference_single_image_new(batch)   #(ref_image, ref_mask, gt_image.copy(), tar_mask)
         
-        # import pdb; pdb.set_trace()
+        
         # image_name = batch['img_path'][0].split('/')[-1]
         image_name = str(i)+ '.png'
         gen_path = os.path.join(save_dir_gen, image_name)
         gt_path = os.path.join(save_dir_gt, image_name)
         ref_path = os.path.join(save_dir_ref,image_name)
         layout_path = os.path.join(save_dir_layout,image_name)
+        concat_path = os.path.join(save_dir_all,image_name)
 
         gen_image = cv2.cvtColor(gen_image, cv2.COLOR_BGR2RGB)
         ref_image = cv2.cvtColor((ref_image.numpy()* 255.0).transpose(1,2,0), cv2.COLOR_BGR2RGB)
         gt_image = cv2.cvtColor(((gt_image.numpy()+1.0)/2 * 255.0).transpose(1,2,0), cv2.COLOR_BGR2RGB)
         layout_image = cv2.cvtColor((layout.numpy()* 255.0), cv2.COLOR_BGR2RGB)
+        
         # cv2.imwrite(gen_path.replace('.jpg','ref.jpg'),ref_image)
         cv2.imwrite(gen_path,gen_image)
         cv2.imwrite(gt_path,gt_image)
         cv2.imwrite(ref_path,ref_image)
         cv2.imwrite(layout_path,layout_image)
+        try:
+            results_concat = np.concatenate((gen_image, gt_image), axis=0)
+            resized_ref = Image.fromarray(ref_image.astype(np.uint8))
+            # import pdb; pdb.set_trace()
+            resized_ref_image = np.array(resized_ref.resize((512, 512), Image.ANTIALIAS))
+            results_concat = np.concatenate((results_concat, Image.fromarray(resized_ref_image)), axis=0)
+            results_concat = np.concatenate((results_concat, layout_image), axis=0)
+            cv2.imwrite(concat_path,results_concat)
+        except:
+            pass
+        # import pdb; pdb.set_trace()
+        # cv2.imwrite()
         with open(caption_path, 'a') as f:
             f.write(caption + '\n')
         
         cosine_similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
         # import pdb; pdb.set_trace()
         with torch.no_grad():
-            
+            # if i >3:
+            #     break
             # gen_image = np.transpose(np.expand_dims(gen_image, axis=0), (0, 3, 1, 2))
             gen_image = np.transpose(torch.from_numpy(gen_image.astype(np.uint8)).unsqueeze(0),(0,3,1,2)) #.transpose(0,3,1,2)
             CLIP_T.append(clip_score(gen_image, caption, "openai/clip-vit-base-patch16"))
+            
+            # image1 = Image.open(gt_path)      #Image.open(batch['img_path'][0])  # ground truth
+            # image2 = Image.open(gen_path)              # generated image
+            # import pdb; pdb.set_trace()
+            to_pil_image = transforms.ToPILImage()
+            image1 = Image.fromarray(gt_image.astype(np.uint8))  #to_pil_image(torch.from_numpy(gt_image).unsqueeze(0))
+            image2 = to_pil_image(gen_image.squeeze(0))  
+            
+            # 计算clip-I和dino-I
+            inputs1 = clipprocessor(images=image1, return_tensors="pt").to(device)
+            image_features1 = clipmodel.get_image_features(**inputs1)
+            inputs2 = clipprocessor(images=image2, return_tensors="pt").to(device)
+            image_features2 = clipmodel.get_image_features(**inputs2)
+            
+            cos = nn.CosineSimilarity(dim=0)
+            sim = cos(image_features1[0],image_features2[0]).item()
+            sim_clip_i = (sim+1)/2
+            # print('CLIP Similarity:', sim_clip_i)
+            CLIP_I.append(sim_clip_i)
+            
+            
+            inputs1_dino = dinoprocessor(images=image1, return_tensors="pt").to(device)
+            outputs1 = dinomodel(**inputs1_dino)
+            inputs2_dino = dinoprocessor(images=image2, return_tensors="pt").to(device)
+            outputs2 = dinomodel(**inputs2_dino)
+            
+            image_features1_dino = outputs1.last_hidden_state
+            image_features1_dino = image_features1_dino.mean(dim=1)
+            image_features2_dino = outputs2.last_hidden_state
+            image_features2_dino = image_features2_dino.mean(dim=1)
+            cos = nn.CosineSimilarity(dim=0)
+            sim = cos(image_features1_dino[0],image_features2_dino[0]).item()
+            sim_dino = (sim+1)/2
+            # print('DINO Similarity:', sim_dino)
+            DINO_I.append(sim_dino)
+            
             
     #         gt_image = np.transpose((gt_image* 127.5 + 127.5).unsqueeze(0),(0,3,1,2))
     #         gt_clip_features = clipmodel.encode_image(preprocess(gt_image))
@@ -599,6 +619,15 @@ if __name__ == '__main__':
 
             
     clip_t_scores = np.mean(CLIP_T)
+    
+    clip_i_scores = np.mean(CLIP_I)
+    dino_i_scores = np.mean(DINO_I) 
+    print('clip_t_scores:',clip_t_scores,'clip_i_scores:',clip_i_scores,'dino_i_scores:',dino_i_scores)
+    with open('result_flickr.txt','a') as f:
+        f.write('\n'+'clip_t_scores:'+ str(clip_t_scores)+'\n')
+        f.write('clip_i_scores:'+ str(clip_i_scores)+'\n')  
+        f.write('dino_i_scores:'+ str(dino_i_scores)+'\n')  
+        
     # clip_i_scores = np.mean(CLIP_I)
     # dino_i_scores = np.mean(DINO_I)
     # print('clip_t_scores:',clip_t_scores,'clip_i_scores:',clip_i_scores,'dino_i_scores:',dino_i_scores)
@@ -607,18 +636,9 @@ if __name__ == '__main__':
         # cv2.imwrite(gen_path, vis_image[:,:,::-1])
         
 
-    import torch
-    from PIL import Image
-    from transformers import AutoImageProcessor,AutoProcessor, CLIPModel, AutoModel
-    import torch.nn as nn
-    device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-    clipprocessor = AutoProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    clipmodel = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-    dinoprocessor = AutoImageProcessor.from_pretrained('facebook/dinov2-base')
-    dinomodel = AutoModel.from_pretrained('facebook/dinov2-base').to(device)
-    
+    '''
     for i, batch in enumerate(dataloader):
-        if i >3:
+        if i >500:
             break
         # print(batch.keys())
         ref_image = batch['ref'][0]
@@ -675,48 +695,4 @@ if __name__ == '__main__':
         f.write('clip_i_scores:'+ str(clip_i_scores)+'\n')  
         f.write('dino_i_scores:'+ str(dino_i_scores))  
         
-        
-    # #Extract features from image1
-    # image1 = Image.open('img1.jpg')
-    # with torch.no_grad():
-    #     inputs1 = processor(images=image1, return_tensors="pt").to(device)
-    #     image_features1 = model.get_image_features(**inputs1)
-    # #Extract features from image2
-    # image2 = Image.open('img2.jpg')
-    # with torch.no_grad():
-    #     inputs2 = processor(images=image2, return_tensors="pt").to(device)
-    #     image_features2 = model.get_image_features(**inputs2)
-    # #Compute their cosine similarity and convert it into a score between 0 and 1
-    # cos = nn.CosineSimilarity(dim=0)
-    # sim = cos(image_features1[0],image_features2[0]).item()
-    # sim = (sim+1)/2
-    # print('Similarity:', sim)
-
-
-    # from transformers import AutoImageProcessor, AutoModel
-    # from PIL import Image
-    # import torch.nn as nn
-
-    # device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-    # processor = AutoImageProcessor.from_pretrained('facebook/dinov2-base')
-    # model = AutoModel.from_pretrained('facebook/dinov2-base').to(device)
-
-
-    # image1 = Image.open('img1.jpg')
-    # with torch.no_grad():
-    #     inputs1 = processor(images=image1, return_tensors="pt").to(device)
-    #     outputs1 = model(**inputs1)
-    #     image_features1 = outputs1.last_hidden_state
-    #     image_features1 = image_features1.mean(dim=1)
-
-    # image2 = Image.open('img2.jpg')
-    # with torch.no_grad():
-    #     inputs2 = processor(images=image2, return_tensors="pt").to(device)
-    #     outputs2 = model(**inputs2)
-    #     image_features2 = outputs2.last_hidden_state
-    #     image_features2 = image_features2.mean(dim=1)
-
-    # cos = nn.CosineSimilarity(dim=0)
-    # sim = cos(image_features1[0],image_features2[0]).item()
-    # sim = (sim+1)/2
-    # print('Similarity:', sim)
+   '''

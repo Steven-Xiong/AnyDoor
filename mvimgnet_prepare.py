@@ -42,20 +42,11 @@ accumulate_grad_batches=1
 
 # Datasets
 DConf = OmegaConf.load('./configs/datasets.yaml')
-# dataset1 = YoutubeVOSDataset(**DConf.Train.YoutubeVOS)  
-# dataset2 =  SaliencyDataset(**DConf.Train.Saliency) 
-# dataset3 = VIPSegDataset(**DConf.Train.VIPSeg) 
-# dataset4 = YoutubeVISDataset(**DConf.Train.YoutubeVIS) 
-dataset5 = MVImageNetDataset(**DConf.Train.MVImageNet)
-# dataset6 = SAMDataset(**DConf.Train.SAM)
-# dataset7 = UVODataset(**DConf.Train.UVO.train)
-# dataset8 = VitonHDDataset(**DConf.Train.VitonHD)
-# dataset9 = UVOValDataset(**DConf.Train.UVO.val)
-# dataset10 = MoseDataset(**DConf.Train.Mose)
-# dataset11 = FashionTryonDataset(**DConf.Train.FashionTryon)
-# dataset12 = LvisDataset(**DConf.Train.Lvis)
 
-# dataset12.getitem(1)
+dataset5 = MVImageNetDataset(**DConf.Train.MVImageNet)
+
+
+dataset5.getitem(1)
 # dataset12.get_sample(1)
 image_data = [dataset5]
 # video_data = [dataset1, dataset3, dataset4, dataset7, dataset9, dataset10 ]
@@ -67,10 +58,12 @@ dataset = ConcatDataset(image_data)
 
 # dataset.get_sample(1)
 dataloader = DataLoader(dataset, num_workers=4, batch_size=batch_size, shuffle=True)
-import pdb; pdb.set_trace()
+# import pdb; pdb.set_trace()
 for idx, batch in enumerate(dataloader):
     import pdb; pdb.set_trace()
     print(batch.keys())
+
+
     
     ref = batch['ref'][0]
     save_path = batch['img_path'][0].replace('train2017','train_ref_max')

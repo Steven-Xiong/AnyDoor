@@ -6,7 +6,7 @@ import torchvision
 from PIL import Image
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.utilities.distributed import rank_zero_only
-
+import torch.nn.functional as F
 
 class ImageLogger(Callback):
     def __init__(self, batch_frequency=2000, max_images=4, clamp=True, increase_log_steps=True,
@@ -53,7 +53,7 @@ class ImageLogger(Callback):
 
             with torch.no_grad():
                 images = pl_module.log_images(batch, split=split, **self.log_images_kwargs)
-
+            i = 0
             for k in images:
                 N = min(images[k].shape[0], self.max_images)
                 images[k] = images[k][:N]
@@ -61,7 +61,17 @@ class ImageLogger(Callback):
                     images[k] = images[k].detach().cpu()
                     if self.clamp:
                         images[k] = torch.clamp(images[k], -1., 1.)
-
+                if i == 0:
+                    results_concat = images[k]
+                else:
+                    # import pdb; pdb.set_trace()
+                    if images[k].shape[2] !=512:
+                        results_concat = torch.cat((results_concat,F.interpolate(images[k], size=(512, 512), mode='bilinear', align_corners=False)),dim=2)
+                    else:
+                        results_concat = torch.cat((results_concat,images[k]),dim=2)
+                i=i+1       
+            images['result_concat'] = results_concat  
+            # print(images['result_concat'].shape)      
             self.log_local(pl_module.logger.save_dir, split, images,
                            pl_module.global_step, pl_module.current_epoch, batch_idx)
 

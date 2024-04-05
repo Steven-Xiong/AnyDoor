@@ -331,11 +331,11 @@ class ControlLDM(LatentDiffusion):
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
         self.position_net = PositionNet_txt(in_dim=768, out_dim=1024)
-        self.position_net_image = PositionNet_dino_image2(in_dim=1024, out_dim=1024)  #试一试不对patch只对image ground
+        self.position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024)  #试一试不对patch只对image ground
         # self.DinoFeatureExtractor = FrozenDinoV2EncoderFeatures
         # import pdb; pdb.set_trace()
         self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
-        
+        '''
         version = "openai/clip-vit-large-patch14"
         self.clip_model = CLIPModel.from_pretrained(version).cuda()
         self.processor = CLIPProcessor.from_pretrained(version)
@@ -343,14 +343,14 @@ class ControlLDM(LatentDiffusion):
         # import pdb; pdb.set_trace()
         self.get_clip_feature = get_clip_feature(model=self.clip_model, processor=self.processor,input=None, is_image=True)
         self.projection_matrix = torch.load('projection_matrix').cuda()
-
+        '''
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
         # print(batch.keys()) #dict_keys(['id', 'jpg', 'boxes', 'masks', 'image_masks', 'text_masks', 'text_embeddings', 'image_embeddings', 'caption'])
                             #  "box_ref", "image_embeddings_ref", 'image_mask_ref', 'text_mask_ref'
         
         # 3.31 判断是否用mvimgnet:
-        # import pdb; pdb.set_trace()
+        
         # has_embeddings = 'image_embeddings' in batch.keys() and 'text_embeddings' in batch.keys()
         # if has_embeddings: 
         #     batch['jpg'] = batch['jpg'].permute(0,2,3,1)
@@ -363,17 +363,15 @@ class ControlLDM(LatentDiffusion):
         
         if 'hint' in batch.keys():
             # 如果没法dataloader层面解决，就用这段代码：
-            image_embeddings = []
-            for i in range(batch['jpg'].shape[0]):
-                ref = batch['ref'][i]
-                # ref_embedding = self.get_clip_feature(model=self.clip_model, processor=self.processor, input=ref.permute(2,0,1), is_image=True)
-                ref_embedding = get_clip_feature(model=self.clip_model, processor=self.processor, input=ref.permute(2,0,1), is_image=True)
-                image_embeddings.append(torch.cat((ref_embedding, torch.zeros((29, 768)).cuda()), dim=0)) 
-            batch['image_embeddings'] = torch.stack(image_embeddings, dim=0)
             
-            item_with_collage['txt_embeddings'] = np.zeros((30,768))
-        
-            # pass
+            # image_embeddings = []
+            # for i in range(batch['jpg'].shape[0]):
+            #     ref = batch['ref'][i]
+            #     # ref_embedding = self.get_clip_feature(model=self.clip_model, processor=self.processor, input=ref.permute(2,0,1), is_image=True)
+            #     ref_embedding = get_clip_feature(model=self.clip_model, processor=self.processor, input=ref.permute(2,0,1), is_image=True)
+            #     image_embeddings.append(torch.cat((ref_embedding, torch.zeros((29, 768)).cuda()), dim=0)) 
+            # batch['image_embeddings'] = torch.stack(image_embeddings, dim=0)            
+            pass
             
         # batch['ref'] = torch.zeros(batch['jpg'].shape[0],224,224,3)
         else: 
@@ -382,20 +380,27 @@ class ControlLDM(LatentDiffusion):
             batch['hint'] = torch.zeros(batch['jpg'].shape[0],512,512,4)   
         
         
-        
         x, c_txt = super().get_input(batch, self.first_stage_key, cond_key='txt', *args, **kwargs) # [16, 77, 1024]
-        
-        c_txt_ground = self.position_net(batch['boxes'], batch['masks'], batch['text_embeddings']) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
+        # import pdb; pdb.set_trace()
+        c_txt_ground = self.position_net(batch['boxes'].float() , batch['masks'].float() , batch['text_embeddings'].float() ) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
         c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
         #最大的bbox, bbox object 加 grounding
         x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs) #'jpg'  c.shape[16,257,1024] 原本就是jpg
         # import pdb; pdb.set_trace()
-        image_embeddings_ref = self.DinoFeatureExtractor.encode(batch['ref'].permute(0,3,1,2))
+        image_embeddings_ref = self.DinoFeatureExtractor.encode(batch['ref'].permute(0,3,1,2).float())
         # c_img_ground = self.position_net_image(batch['box_ref'], batch['image_mask_ref'], image_embeddings_ref) # [8, 1, 1024]
-        # import pdb; pdb.set_trace()
+        '''
         c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
+        '''
+        # import pdb; pdb.set_trace()
+        c_image_ground_new = self.position_net_image(batch['box_ref'], batch['image_mask_ref'], image_embeddings_ref)
         # 3.31尝试：用原来的c
-        # c = c_image_ground
+        # import pdb; pdb.set_trace()
+        
+        # 4.4 假如只用text grounding
+        
+        # c = torch.zeros(batch['jpg'].shape[0],257,1024).to(self.device)
+        c = c_image_ground_new
         
         # import pdb; pdb.set_trace()
         c_txt_ground1 = self.position_net(torch.zeros(batch['boxes'].shape).cuda(), torch.zeros(batch['masks'].shape).cuda(), torch.zeros(batch['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
@@ -403,8 +408,6 @@ class ControlLDM(LatentDiffusion):
         # c = torch.cat((c,c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
 
         # add txt?
-        
-        # c_new = PositionNet_image
         
         #进行concat:
         # c = torch.cat((c,c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
@@ -441,6 +444,7 @@ class ControlLDM(LatentDiffusion):
     def get_unconditional_conditioning(self, N):
         # import pdb; pdb.set_trace()
         uncond =  self.get_learned_conditioning([ torch.zeros((1,3,224,224)) ] * N)
+        
         # uncond = torch.cat([uncond, self.txt_ground1.cuda()],dim=1)
         # 3.31试：还原原来的
         # uncond = torch.cat([uncond, torch.zeros(N,1,1024).cuda()],dim=1)
@@ -463,7 +467,7 @@ class ControlLDM(LatentDiffusion):
         c_cat, c, c_grounding = c["c_concat"][0][:N], c["c_crossattn"][0][:N], c["objs"][0][:N]
         N = min(z.shape[0], N)
         n_row = min(z.shape[0], n_row)
-        
+        # import pdb; pdb.set_trace()
         log["reconstruction"] = self.decode_first_stage(z) 
 
         # ==== visualize the shape mask or the high-frequency map ====
@@ -790,6 +794,8 @@ class PositionNet_dino_image2(nn.Module):
         # objs_text  = self.linears_text(  torch.cat([text_embeddings, xyxy_embedding], dim=-1)  ) # [2, 30, 768]
         # import pdb; pdb.set_trace()
         # 需要将xyxy_embedding复制到每一个对应的位置，因此需要repeat扩展
+        # 4.3 new version:
+
         xyxy_filled = torch.zeros([xyxy_embedding.shape[0], 256, 64]).cuda()  # 结果形状为[4, 257, 64]
         xyxy_repeated = torch.cat([xyxy_embedding, xyxy_filled], dim=1)
 
@@ -800,6 +806,68 @@ class PositionNet_dino_image2(nn.Module):
         
         # objs_image = self.linears_image( torch.cat([image_embeddings,xyxy_embedding], dim=-1)  ) # [2, 30, 768]
         # objs = torch.cat( [objs_text,objs_image], dim=1 )  # [2, 30, 768]
+
+        # assert objs_image.shape == torch.Size([B,N,self.out_dim])        
+        return objs_image
+
+class PositionNet_dino_image3(nn.Module):
+    def __init__(self, in_dim, out_dim, fourier_freqs=8):
+        super().__init__()
+        self.in_dim = in_dim
+        self.out_dim = out_dim 
+
+        self.fourier_embedder = FourierEmbedder(num_freqs=fourier_freqs)
+        self.position_dim = fourier_freqs*2*4 # 2 is sin&cos, 4 is xyxy 
+
+        # -------------------------------------------------------------- #
+        self.linears_text = nn.Sequential(
+            nn.Linear( self.in_dim + self.position_dim, 512),
+            nn.SiLU(),
+            nn.Linear( 512, 512),
+            nn.SiLU(),
+            nn.Linear(512, out_dim),
+        )
+
+        self.linears_image = nn.Sequential(
+            nn.Linear( self.in_dim + self.position_dim, 512),
+            nn.SiLU(),
+            nn.Linear( 512, 512),
+            nn.SiLU(),
+            nn.Linear(512, out_dim),
+        )
+        
+        # -------------------------------------------------------------- #
+        self.null_text_feature = torch.nn.Parameter(torch.zeros([self.in_dim]))
+        self.null_image_feature = torch.nn.Parameter(torch.zeros([self.in_dim]))
+        self.null_position_feature = torch.nn.Parameter(torch.zeros([self.position_dim]))
+  
+
+    def forward(self, boxes, image_masks, image_embeddings):
+        B, N, _ = boxes.shape 
+        # masks = masks.unsqueeze(-1) # B*N*1 
+        # text_masks = text_masks.unsqueeze(-1) # B*N*1 
+        image_masks = image_masks.unsqueeze(-1) # B*N*1
+        
+        # embedding position (it may includes padding as placeholder)
+        xyxy_embedding = self.fourier_embedder(boxes) # B*N*4 --> B*N*C
+
+        # learnable null embedding 
+        # text_null  = self.null_text_feature.view(1,1,-1) # 1*1*C  (C=768)
+        image_null = self.null_image_feature.view(1,1,-1) # 1*1*C
+        xyxy_null  = self.null_position_feature.view(1,1,-1) # 1*1*C
+
+        # replace padding with learnable null embedding 
+        # import pdb; pdb.set_trace()
+        # text_embeddings  = text_embeddings*text_masks  + (1-text_masks)*text_null       # [2,30,768]
+        image_embeddings = image_embeddings*image_masks + (1-image_masks)*image_null    # [2,30,768]
+        xyxy_embedding = xyxy_embedding*image_masks+ (1-image_masks)*xyxy_null                     # [2, 30, 64]
+
+        # 4.3 new version:
+        
+        ground_embedding = torch.cat([image_embeddings[:,:1,:], xyxy_embedding], dim=-1)
+        ground_embedding = self.linears_image(ground_embedding)
+        objs_image = torch.cat([ground_embedding, image_embeddings[:,1:,:]], dim=1)
+
 
         # assert objs_image.shape == torch.Size([B,N,self.out_dim])        
         return objs_image
