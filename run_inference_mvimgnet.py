@@ -15,6 +15,8 @@ from omegaconf import OmegaConf
 from PIL import Image
 from cldm.cldm import PositionNet_txt,PositionNet_dino_image2,PositionNet_dino_image3
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
+from datasets.mvimagenet_new2 import MVImageNetDataset  #这里注意改动
+
 
 def aug_data_mask(image, mask):
     transform = A.Compose([
@@ -231,8 +233,8 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     if save_memory:
         model.low_vram_shift(is_diffusing=False)
     # import pdb; pdb.set_trace()
-    ref = item['ref'][0]
-    tar = item['jpg'][0]
+    ref = item['ref'][0].permute(2,0,1).float()
+    tar = item['jpg'][0].permute(2,0,1)
     # hint = item['hint'][0].numpy()
 
     hint = np.zeros((512,512,4))
@@ -252,11 +254,12 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     c_txt = model.get_learned_conditioning_txt(caption)      # [1,77,1024]
     position_net = PositionNet_txt(in_dim=768, out_dim=1024).cuda()
     position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024).cuda()  #试一试不对patch只对image ground
-    c_txt_ground = position_net(item['boxes'].cuda(), item['masks'].cuda(), item['text_embeddings'].cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
+    c_txt_ground = position_net(item['boxes'].float().cuda(), item['masks'].float().cuda(), item['text_embeddings'].float().cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
     
     DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'}).cuda()
-
-    image_embeddings_ref = DinoFeatureExtractor.encode(item['ref'].cuda())
+    
+    # import pdb; pdb.set_trace()
+    image_embeddings_ref = DinoFeatureExtractor.encode(ref.unsqueeze(0)).cuda()
     c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
     c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
     # import pdb; pdb.set_trace()
@@ -268,7 +271,7 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     c_txt_ground1 = position_net(torch.zeros(item['boxes'].shape).cuda(), torch.zeros(item['masks'].shape).cuda(), torch.zeros(item['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
     txt_ground1 = c_txt_ground1[:,:1,:]
     # import pdb; pdb.set_trace()
-    c_image_ground_new = position_net_image(item['box_ref'].cuda(), item['image_mask_ref'].cuda(), image_embeddings_ref)
+    # c_image_ground_new = position_net_image(item['box_ref'].cuda(), item['image_mask_ref'].cuda(), image_embeddings_ref)
     # 3.31尝试：用原来的c
     # c = c_image_ground_new
     # c = c_image
@@ -324,30 +327,6 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     return gen_image
 
 import clip
-
-# clip socre计算
-# def calculate_clip_score(dataloader, model, real_flag, fake_flag):
-#     score_acc = 0.
-#     sample_num = 0.
-#     logit_scale = model.logit_scale.exp()
-#     for batch_data in tqdm(dataloader):
-#         real = batch_data['real']
-#         real_features = forward_modality(model, real, real_flag)
-#         fake = batch_data['fake']
-#         fake_features = forward_modality(model, fake, fake_flag)
-        
-#         # normalize features
-#         real_features = real_features / real_features.norm(dim=1, keepdim=True).to(torch.float32)
-#         fake_features = fake_features / fake_features.norm(dim=1, keepdim=True).to(torch.float32)
-        
-#         # calculate scores
-#         # score = logit_scale * real_features @ fake_features.t()
-#         # score_acc += torch.diag(score).sum()
-#         score = logit_scale * (fake_features * real_features).sum()
-#         score_acc += score
-#         sample_num += real.shape[0]
-    
-#     return score_acc / sample_num
 
 
 class DINOEvaluator:
@@ -473,11 +452,10 @@ if __name__ == '__main__':
     ddim_sampler = DDIMSampler(model)
 
     DConf = OmegaConf.load('./configs/datasets.yaml')
-    time = '4.13_trainwithSBU_epoch2'
+    time = '4.14_mvimgnet_trainwithSBU_EPOCH2'
     dir_path = os.path.join('output',time)
     os.makedirs(dir_path,exist_ok=True)
     print('dir_path:',dir_path)
-    
     save_dir_gen = 'output/'+ time + '/gen'
     save_dir_gt = 'output/'+ time +'/gt'
     save_dir_ref = 'output/'+ time +'/ref'
@@ -493,14 +471,16 @@ if __name__ == '__main__':
     if not os.path.exists(save_dir_ref):
         os.mkdir(save_dir_ref)    
     if not os.path.exists(save_dir_layout):
-        os.mkdir(save_dir_layout)   
+        os.mkdir(save_dir_layout) 
     if not os.path.exists(save_dir_ref_layout):
         os.mkdir(save_dir_ref_layout)    
     if not os.path.exists(save_dir_all):
         os.mkdir(save_dir_all)    
-        
     # test_dataset_repeats = config.test_dataset_repeats if 'train_dataset_repeats' in config else None
-    dataset_test = ConCatDataset(config.test_dataset_names, 'DATA', train=False, repeats=None)
+    dataset5 = MVImageNetDataset(**DConf.Test.MVImageNet)
+    image_data = [dataset5]
+    dataset_test = ConcatDataset(image_data)
+    # dataset_test = ConCatDataset(config.test_dataset_names, 'DATA', train=False, repeats=None)
     dataloader = DataLoader(dataset_test, num_workers=4, batch_size=1, shuffle=False)
 
     CLIP_T = []
@@ -531,11 +511,11 @@ if __name__ == '__main__':
         # print(batch.keys())
         # batch.cuda()
         # import pdb; pdb.set_trace()
-        ref_image = batch['ref'][0]
-        gt_image = batch['jpg'][0]
+        ref_image = batch['ref'][0].permute(2,0,1).float()
+        gt_image = batch['jpg'][0].permute(2,0,1)
         caption = batch['txt'][0]
-        layout = batch['layout_all'][0]
-        ref_layout = batch['layout'][0]
+        layout = batch['layout_all'][0].float()
+        ref_layout = batch['layout'][0].float()
         
         gen_image = inference_single_image_new(batch)   #(ref_image, ref_mask, gt_image.copy(), tar_mask)
         
@@ -548,7 +528,7 @@ if __name__ == '__main__':
         layout_path = os.path.join(save_dir_layout,image_name)
         ref_layout_path = os.path.join(save_dir_ref_layout,image_name)
         concat_path = os.path.join(save_dir_all,image_name)
-
+        # import pdb; pdb.set_trace()
         gen_image = cv2.cvtColor(gen_image, cv2.COLOR_BGR2RGB)
         ref_image = cv2.cvtColor((ref_image.numpy()* 255.0).transpose(1,2,0), cv2.COLOR_BGR2RGB)
         gt_image = cv2.cvtColor(((gt_image.numpy()+1.0)/2 * 255.0).transpose(1,2,0), cv2.COLOR_BGR2RGB)
@@ -643,72 +623,3 @@ if __name__ == '__main__':
         f.write('\n'+'clip_t_scores:'+ str(clip_t_scores)+'\n')
         f.write('clip_i_scores:'+ str(clip_i_scores)+'\n')  
         f.write('dino_i_scores:'+ str(dino_i_scores)+'\n')  
-        
-    # clip_i_scores = np.mean(CLIP_I)
-    # dino_i_scores = np.mean(DINO_I)
-    # print('clip_t_scores:',clip_t_scores,'clip_i_scores:',clip_i_scores,'dino_i_scores:',dino_i_scores)
-
-        # vis_image = cv2.hconcat([ref_image, gt_image, gen_image])
-        # cv2.imwrite(gen_path, vis_image[:,:,::-1])
-        
-
-    '''
-    for i, batch in enumerate(dataloader):
-        if i >500:
-            break
-        # print(batch.keys())
-        ref_image = batch['ref'][0]
-        gt_image = batch['jpg'][0]
-        caption = batch['txt'][0]
-        # gen_image = inference_single_image_new(batch)   #(ref_image, ref_mask, gt_image.copy(), tar_mask)
-        
-        # import pdb; pdb.set_trace()
-        # image_name = batch['img_path'][0].split('/')[-1]
-        image_name = str(i)+ '.png'
-        gen_path = os.path.join(save_dir_gen, image_name)
-        gt_path = os.path.join(save_dir_gt, image_name)
-        # ref_path = os.path.join(save_dir_ref,image_name)
-        # layout_path = os.path.join(save_dir_layout,image_name)
-        
-        # cv2.imwrite(gen_path,gen_image)
-        
-        image1 = Image.open(gt_path)      #Image.open(batch['img_path'][0])  # ground truth
-        image2 = Image.open(gen_path)              # generated image
-        
-        with torch.no_grad():
-            inputs1 = clipprocessor(images=image1, return_tensors="pt").to(device)
-            image_features1 = clipmodel.get_image_features(**inputs1)
-            inputs2 = clipprocessor(images=image2, return_tensors="pt").to(device)
-            image_features2 = clipmodel.get_image_features(**inputs2)
-            
-            cos = nn.CosineSimilarity(dim=0)
-            sim = cos(image_features1[0],image_features2[0]).item()
-            sim_clip_i = (sim+1)/2
-            # print('CLIP Similarity:', sim_clip_i)
-            CLIP_I.append(sim_clip_i)
-            
-            
-            inputs1_dino = dinoprocessor(images=image1, return_tensors="pt").to(device)
-            outputs1 = dinomodel(**inputs1_dino)
-            inputs2_dino = dinoprocessor(images=image2, return_tensors="pt").to(device)
-            outputs2 = dinomodel(**inputs2_dino)
-            
-            image_features1_dino = outputs1.last_hidden_state
-            image_features1_dino = image_features1_dino.mean(dim=1)
-            image_features2_dino = outputs2.last_hidden_state
-            image_features2_dino = image_features2_dino.mean(dim=1)
-            cos = nn.CosineSimilarity(dim=0)
-            sim = cos(image_features1_dino[0],image_features2_dino[0]).item()
-            sim_dino = (sim+1)/2
-            # print('DINO Similarity:', sim_dino)
-            DINO_I.append(sim_dino)
-            
-    clip_i_scores = np.mean(CLIP_I)
-    dino_i_scores = np.mean(DINO_I) 
-    print('clip_t_scores:',clip_t_scores,'clip_i_scores:',clip_i_scores,'dino_i_scores:',dino_i_scores)
-    with open('result_flickr.txt','a') as f:
-        f.write('clip_t_scores:'+ str(clip_t_scores)+'\n')
-        f.write('clip_i_scores:'+ str(clip_i_scores)+'\n')  
-        f.write('dino_i_scores:'+ str(dino_i_scores))  
-        
-   '''

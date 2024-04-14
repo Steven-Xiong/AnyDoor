@@ -213,7 +213,7 @@ class GatedCrossAttentionDense(nn.Module):
         self.norm1 = nn.LayerNorm(query_dim)
         self.norm2 = nn.LayerNorm(query_dim)
 
-        self.register_parameter('alpha_attn', nn.Parameter(torch.tensor(0.)) )
+        self.register_parameter('alpha_attn', nn.Parameter(torch.tensor(0.)) ) #torch.tensor(0.)
         self.register_parameter('alpha_dense', nn.Parameter(torch.tensor(0.)) )
 
         # this can be useful: we can externally change magnitude of tanh(alpha)
@@ -221,7 +221,7 @@ class GatedCrossAttentionDense(nn.Module):
         self.scale = 1  
 
     def forward(self, x, objs):
-
+        # import pdb; pdb.set_trace()
         x = x + self.scale*torch.tanh(self.alpha_attn) * self.attn( self.norm1(x), objs, objs)  
         x = x + self.scale*torch.tanh(self.alpha_dense) * self.ff( self.norm2(x) ) 
         
@@ -404,7 +404,7 @@ class BasicTransformerBlock(nn.Module):
         self.checkpoint = checkpoint
         # add GLIGEN
         # import pdb; pdb.set_trace()
-        fuser_type = "gatedCA" # 对text grounding 用cross attention
+        fuser_type = "gatedSA" # 对text grounding 用cross attention
         if fuser_type == "gatedSA":
             # note key_dim here actually is context_dim
             self.fuser = GatedSelfAttentionDense(query_dim=dim, context_dim=context_dim, n_heads=n_heads, d_head=d_head) 

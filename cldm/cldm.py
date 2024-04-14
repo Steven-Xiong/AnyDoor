@@ -34,14 +34,14 @@ class ControlledUnetModel(UNetModel):
     def forward(self, x, timesteps=None, context=None, control=None,objs=None, only_mid_control=False, **kwargs):
         hs = []
         # import pdb; pdb.set_trace()
-        with torch.no_grad():
-            t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
-            emb = self.time_embed(t_emb)
-            h = x.type(self.dtype)
-            for module in self.input_blocks:
-                h = module(h, emb, context,objs)
-                hs.append(h)
-            h = self.middle_block(h, emb, context,objs)
+        # with torch.no_grad():   # 为什么no_grad? 不用会怎么样？
+        t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
+        emb = self.time_embed(t_emb)
+        h = x.type(self.dtype)
+        for module in self.input_blocks:
+            h = module(h, emb, context,objs)
+            hs.append(h)
+        h = self.middle_block(h, emb, context,objs)
 
         if control is not None:
             h += control.pop()
@@ -295,7 +295,7 @@ class ControlNet(nn.Module):
     def make_zero_conv(self, channels):
         return TimestepEmbedSequential(zero_module(conv_nd(self.dims, channels, channels, 1, padding=0)))
 
-    def forward(self, x, hint, timesteps, context,objs,**kwargs): #负责模块融合, objs为 image grounding token
+    def forward(self, x, hint, timesteps, context,objs,**kwargs): #负责模块融合, objs为 image grounding token, 对应high frequency maps
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb) # 1,1280
         # import pdb; pdb.set_trace()
@@ -332,6 +332,7 @@ class ControlLDM(LatentDiffusion):
         self.control_scales = [1.0] * 13
         self.position_net = PositionNet_txt(in_dim=768, out_dim=1024)
         self.position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024)  #试一试不对patch只对image ground
+        self.position_net_textimage = PositionNet_dino_textimage(in_dim_txt=768, in_dim_image=1024, out_dim=1024)
         # self.DinoFeatureExtractor = FrozenDinoV2EncoderFeatures
         # import pdb; pdb.set_trace()
         self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
@@ -392,15 +393,21 @@ class ControlLDM(LatentDiffusion):
         '''
         c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
         '''
+
+        '''
         # import pdb; pdb.set_trace()
         c_image_ground_new = self.position_net_image(batch['box_ref'], batch['image_mask_ref'], image_embeddings_ref)
+        import pdb; pdb.set_trace()
+        # 以下为text和image联合ground
+        c_textimage_ground = self.position_net_textimage(batch['box_ref'], batch['image_mask_ref'], batch['text_embeddings'].float(),image_embeddings_ref)
+        '''
         # 3.31尝试：用原来的c
         # import pdb; pdb.set_trace()
         
         # 4.4 假如只用text grounding
         
         # c = torch.zeros(batch['jpg'].shape[0],257,1024).to(self.device)
-        c = c_image_ground_new
+        # c = c_image_ground_new
         
         # import pdb; pdb.set_trace()
         c_txt_ground1 = self.position_net(torch.zeros(batch['boxes'].shape).cuda(), torch.zeros(batch['masks'].shape).cuda(), torch.zeros(batch['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
@@ -411,7 +418,8 @@ class ControlLDM(LatentDiffusion):
         
         #进行concat:
         # c = torch.cat((c,c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
-        # c = torch.cat((c,c_txt_new),dim=1)  #[B,287,1024]
+        # import pdb; pdb.set_trace()
+        c = torch.cat((c,c_txt),dim=1)  #[B,334,1024]
         # import pdb; pdb.set_trace()
         control = batch[self.control_key]  #'hint'  hint替换为layout? 本身就包含了layout信息
         
@@ -421,7 +429,7 @@ class ControlLDM(LatentDiffusion):
         control = einops.rearrange(control, 'b h w c -> b c h w')
         control = control.to(memory_format=torch.contiguous_format).float() #([B, 4, 512, 512])
         self.time_steps = batch['time_steps']
-        return x, dict(c_crossattn=[c], c_concat=[control], objs = [c_txt_all])  # 3.23 是不是ground的问题？不拿c_txt_all试 # add ground
+        return x, dict(c_crossattn=[c], c_concat=[control], objs = [c_txt_ground])  # 3.23 是不是ground的问题？不拿c_txt_all试 # add ground
 
     # TODO: 3.14 需要在sample函数中加上Objs?
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
@@ -444,13 +452,14 @@ class ControlLDM(LatentDiffusion):
     def get_unconditional_conditioning(self, N):
         # import pdb; pdb.set_trace()
         uncond =  self.get_learned_conditioning([ torch.zeros((1,3,224,224)) ] * N)
+        uncond_txt = self.get_learned_conditioning_txt([""] * N)
+        uncond = torch.cat((uncond,uncond_txt),dim=1)
         
         # uncond = torch.cat([uncond, self.txt_ground1.cuda()],dim=1)
         # 3.31试：还原原来的
         # uncond = torch.cat([uncond, torch.zeros(N,1,1024).cuda()],dim=1)
         
-        # uncond_txt = self.get_learned_conditioning_txt([""] * N)
-        # uncond = torch.cat((uncond,uncond_txt),dim=1)
+        
         return uncond
 
     @torch.no_grad()
@@ -570,65 +579,6 @@ class ControlLDM(LatentDiffusion):
             self.first_stage_model = self.first_stage_model.cuda()
             self.cond_stage_model = self.cond_stage_model.cuda()
 
-
-class PositionNet_txt_image(nn.Module):
-    def __init__(self, in_dim, out_dim, fourier_freqs=8):
-        super().__init__()
-        self.in_dim = in_dim
-        self.out_dim = out_dim 
-
-        self.fourier_embedder = FourierEmbedder(num_freqs=fourier_freqs)
-        self.position_dim = fourier_freqs*2*4 # 2 is sin&cos, 4 is xyxy 
-
-        # -------------------------------------------------------------- #
-        self.linears_text = nn.Sequential(
-            nn.Linear( self.in_dim + self.position_dim, 512),
-            nn.SiLU(),
-            nn.Linear( 512, 512),
-            nn.SiLU(),
-            nn.Linear(512, out_dim),
-        )
-
-        self.linears_image = nn.Sequential(
-            nn.Linear( self.in_dim + self.position_dim, 512),
-            nn.SiLU(),
-            nn.Linear( 512, 512),
-            nn.SiLU(),
-            nn.Linear(512, out_dim),
-        )
-        
-        # -------------------------------------------------------------- #
-        self.null_text_feature = torch.nn.Parameter(torch.zeros([self.in_dim]))
-        self.null_image_feature = torch.nn.Parameter(torch.zeros([self.in_dim]))
-        self.null_position_feature = torch.nn.Parameter(torch.zeros([self.position_dim]))
-  
-
-    def forward(self, boxes, masks, text_masks, image_masks, text_embeddings, image_embeddings):
-        B, N, _ = boxes.shape 
-        masks = masks.unsqueeze(-1) # B*N*1 
-        text_masks = text_masks.unsqueeze(-1) # B*N*1 
-        image_masks = image_masks.unsqueeze(-1) # B*N*1
-        
-        # embedding position (it may includes padding as placeholder)
-        xyxy_embedding = self.fourier_embedder(boxes) # B*N*4 --> B*N*C
-
-        # learnable null embedding 
-        text_null  = self.null_text_feature.view(1,1,-1) # 1*1*C  (C=768)
-        image_null = self.null_image_feature.view(1,1,-1) # 1*1*C
-        xyxy_null  = self.null_position_feature.view(1,1,-1) # 1*1*C
-
-        # replace padding with learnable null embedding 
-        # import pdb; pdb.set_trace()
-        text_embeddings  = text_embeddings*text_masks  + (1-text_masks)*text_null       # [2,30,768]
-        image_embeddings = image_embeddings*image_masks + (1-image_masks)*image_null    # [2,30,768]
-        xyxy_embedding = xyxy_embedding*masks + (1-masks)*xyxy_null                     # [2, 30, 64]
-
-        objs_text  = self.linears_text(  torch.cat([text_embeddings, xyxy_embedding], dim=-1)  ) # [2, 30, 768]
-        objs_image = self.linears_image( torch.cat([image_embeddings,xyxy_embedding], dim=-1)  ) # [2, 30, 768]
-        objs = torch.cat( [objs_text,objs_image], dim=1 )  # [2, 30, 768]
-
-        assert objs.shape == torch.Size([B,N*2,self.out_dim])        
-        return objs
 
 class PositionNet_txt(nn.Module):
     def __init__(self,  in_dim, out_dim, fourier_freqs=8):
@@ -873,7 +823,95 @@ class PositionNet_dino_image3(nn.Module):
         return objs_image
 
 
-# class PositionNet_dino_image(nn.Module):
+class PositionNet_dino_textimage(nn.Module):
+    def __init__(self, in_dim_txt, in_dim_image, out_dim, fourier_freqs=8):
+        super().__init__()
+        self.in_dim_txt = in_dim_txt
+        self.in_dim_image = in_dim_image
+        self.out_dim = out_dim 
+
+        self.fourier_embedder = FourierEmbedder(num_freqs=fourier_freqs)
+        self.position_dim = fourier_freqs*2*4 # 2 is sin&cos, 4 is xyxy 
+
+        # -------------------------------------------------------------- #
+        self.linears_text = nn.Sequential(
+            nn.Linear( self.in_dim_txt + self.position_dim, 512),
+            nn.SiLU(),
+            nn.Linear( 512, 512),
+            nn.SiLU(),
+            nn.Linear(512, out_dim),
+        )
+        
+        self.linears_text1 = nn.Sequential(
+            nn.Linear( self.in_dim_txt + self.position_dim, 512),
+            nn.SiLU(),
+            nn.Linear( 512, 512),
+            nn.SiLU(),
+            nn.Linear(512, self.in_dim_txt),
+        )
+        self.linears_text2 = nn.Sequential(
+            nn.Linear( self.in_dim_txt, 512),
+            nn.SiLU(),
+            nn.Linear( 512, 512),
+            nn.SiLU(),
+            nn.Linear(512, self.out_dim),
+        )
+        self.linears_image = nn.Sequential(
+            nn.Linear( self.in_dim_image + self.position_dim, 512),
+            nn.SiLU(),
+            nn.Linear( 512, 512),
+            nn.SiLU(),
+            nn.Linear(512, out_dim),
+        )
+        
+        # -------------------------------------------------------------- #
+        self.null_text_feature = torch.nn.Parameter(torch.zeros([self.in_dim_txt]))
+        self.null_image_feature = torch.nn.Parameter(torch.zeros([self.in_dim_image]))
+        self.null_position_feature = torch.nn.Parameter(torch.zeros([self.position_dim]))
+  
+
+    def forward(self, boxes, masks, text_embeddings,image_embeddings):
+        B, N, _ = boxes.shape 
+        # masks = masks.unsqueeze(-1) # B*N*1 
+        text_masks = masks.unsqueeze(-1) # B*N*1 
+        image_masks = masks.unsqueeze(-1) # B*N*1
+        
+        # embedding position (it may includes padding as placeholder)
+        xyxy_embedding = self.fourier_embedder(boxes) # B*N*4 --> B*N*C
+
+        # learnable null embedding 
+        text_null  = self.null_text_feature.view(1,1,-1) # 1*1*C  (C=768)
+        image_null = self.null_image_feature.view(1,1,-1) # 1*1*C
+        xyxy_null  = self.null_position_feature.view(1,1,-1) # 1*1*C
+
+        # replace padding with learnable null embedding 
+        # import pdb; pdb.set_trace()
+        text_embeddings  = text_embeddings*text_masks  + (1-text_masks)*text_null       # [2,30,768]
+        image_embeddings = image_embeddings*image_masks + (1-image_masks)*image_null    # [2,30,768]
+        xyxy_embedding = xyxy_embedding*image_masks+ (1-image_masks)*xyxy_null                     # [2, 30, 64]
+        
+
+        # import pdb; pdb.set_trace()
+        grounding_text = torch.cat([text_embeddings[:,:1,:], xyxy_embedding], dim=-1)
+        ground_text = self.linears_text1(grounding_text)
+        objs_text = torch.cat([ ground_text,text_embeddings[:,1:,:]], dim=1)
+        objs_text = self.linears_text2(objs_text)
+        # objs_text  = torch.cat([objs_text, xyxy_embedding], dim=-1)
+        # objs_image = self.linears_image( torch.cat([image_embeddings,xyxy_embedding], dim=-1)  ) # [2, 30, 768]
+
+        # 4.3 new version:
+        
+        ground_embedding = torch.cat([image_embeddings[:,:1,:], xyxy_embedding], dim=-1)
+        ground_embedding = self.linears_image(ground_embedding)
+
+        objs_image = torch.cat([ground_embedding, image_embeddings[:,1:,:]], dim=1)
+
+        objs = torch.cat( [objs_text,objs_image], dim=1 )  # [2, 30, 768]
+
+        # assert objs_image.shape == torch.Size([B,N,self.out_dim])        
+        return objs_image
+
+# class PositionNet_txt_image(nn.Module):
 #     def __init__(self, in_dim, out_dim, fourier_freqs=8):
 #         super().__init__()
 #         self.in_dim = in_dim
@@ -905,31 +943,29 @@ class PositionNet_dino_image3(nn.Module):
 #         self.null_position_feature = torch.nn.Parameter(torch.zeros([self.position_dim]))
   
 
-#     def forward(self, boxes, image_masks, image_embeddings):
+#     def forward(self, boxes, masks, text_masks, image_masks, text_embeddings, image_embeddings):
 #         B, N, _ = boxes.shape 
-#         # masks = masks.unsqueeze(-1) # B*N*1 
-#         # text_masks = text_masks.unsqueeze(-1) # B*N*1 
+#         masks = masks.unsqueeze(-1) # B*N*1 
+#         text_masks = text_masks.unsqueeze(-1) # B*N*1 
 #         image_masks = image_masks.unsqueeze(-1) # B*N*1
         
 #         # embedding position (it may includes padding as placeholder)
 #         xyxy_embedding = self.fourier_embedder(boxes) # B*N*4 --> B*N*C
 
 #         # learnable null embedding 
-#         # text_null  = self.null_text_feature.view(1,1,-1) # 1*1*C  (C=768)
+#         text_null  = self.null_text_feature.view(1,1,-1) # 1*1*C  (C=768)
 #         image_null = self.null_image_feature.view(1,1,-1) # 1*1*C
 #         xyxy_null  = self.null_position_feature.view(1,1,-1) # 1*1*C
 
 #         # replace padding with learnable null embedding 
 #         # import pdb; pdb.set_trace()
-#         # text_embeddings  = text_embeddings*text_masks  + (1-text_masks)*text_null       # [2,30,768]
+#         text_embeddings  = text_embeddings*text_masks  + (1-text_masks)*text_null       # [2,30,768]
 #         image_embeddings = image_embeddings*image_masks + (1-image_masks)*image_null    # [2,30,768]
-#         xyxy_embedding = xyxy_embedding*image_masks+ (1-image_masks)*xyxy_null                     # [2, 30, 64]
+#         xyxy_embedding = xyxy_embedding*masks + (1-masks)*xyxy_null                     # [2, 30, 64]
 
-#         # objs_text  = self.linears_text(  torch.cat([text_embeddings, xyxy_embedding], dim=-1)  ) # [2, 30, 768]
-#         import pdb; pdb.set_trace()
+#         objs_text  = self.linears_text(  torch.cat([text_embeddings, xyxy_embedding], dim=-1)  ) # [2, 30, 768]
 #         objs_image = self.linears_image( torch.cat([image_embeddings,xyxy_embedding], dim=-1)  ) # [2, 30, 768]
-#         # objs = torch.cat( [objs_text,objs_image], dim=1 )  # [2, 30, 768]
+#         objs = torch.cat( [objs_text,objs_image], dim=1 )  # [2, 30, 768]
 
-#         assert objs_image.shape == torch.Size([B,N,self.out_dim])        
-#         return objs_image
-
+#         assert objs.shape == torch.Size([B,N*2,self.out_dim])        
+#         return objs

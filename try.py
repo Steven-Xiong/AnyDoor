@@ -1,4 +1,4 @@
-
+'''
 # import glob
 import numpy as np
 # txt = '/project/osprey/scratch/x.zhexiao/edit/LayoutBooth/AnyDoor/datasets/Preprocess/mvimagenet_small.txt'
@@ -16,3 +16,10 @@ array = np.zeros(30,dtype=np.int32)
 array[0] = 1
 print(array.dntype)
         # item_with_collage['masks'] = array #.reshape(30,1)
+        
+        '''
+import os    
+time = '4.13_mvimgnet_trainwithflickr'
+dir_path = os.path.join('output',time)
+os.makedirs(dir_path,exist_ok=True)
+print(dir_path)

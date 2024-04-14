@@ -31,6 +31,7 @@ class MVImageNetDataset(BaseDataset_t2i):
             for row in csvreader:
                 path, caption = os.path.join(row[0].split('/')[-4],row[0].split('/')[-3],row[0].split('/')[-2],row[0].split('/')[-1]), row[1]
                 self.caption_index[path] = caption
+        self.max_boxes = 8
         # image_count = 0
         # for folder in self.data:
         #     image_count += len(glob.glob(folder.replace('MVDir/', self.image_dir)))
@@ -162,16 +163,16 @@ class MVImageNetDataset(BaseDataset_t2i):
         item_with_collage['time_steps'] = sampled_time_steps
         
         # add new keys
-        item_with_collage['text_embeddings'] = np.zeros((30,768))
+        item_with_collage['text_embeddings'] = np.zeros((self.max_boxes,768))
         #除了第一个其他都是0？
-        array = np.zeros(30,dtype=np.int32)
+        array = np.zeros(self.max_boxes,dtype=np.int32)
         array[0] = 1
         item_with_collage['masks'] = array #.reshape(30,1)
         # nimport pdb; pdb.set_trace()
         # bbox需要归一化
         bbox = np.array(bbox,dtype=np.float32)
         bbox[0],bbox[1],bbox[2], bbox[3] = bbox[0]/tar_image.shape[0], bbox[1]/tar_image.shape[1], bbox[2]/tar_image.shape[0],bbox[3]/tar_image.shape[1]
-        item_with_collage['boxes'] = np.concatenate((bbox.reshape(1,4), np.zeros((29,4))), axis=0) 
+        item_with_collage['boxes'] = np.concatenate((bbox.reshape(1,4), np.zeros((self.max_boxes-1,4))), axis=0) 
         item_with_collage['layout_all'] = item_with_collage['layout']
 
         return item_with_collage

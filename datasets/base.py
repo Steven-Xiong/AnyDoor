@@ -556,6 +556,7 @@ class BaseDataset_t2i(Dataset):
         # Get the outline Box of the reference image
         # import pdb; pdb.set_trace()
         ref_box_yyxx = get_bbox_from_mask(ref_mask)
+        # print('ref_box_yyxx',ref_box_yyxx)
         assert self.check_region_size(ref_mask, ref_box_yyxx, ratio = 0.10, mode = 'min') == True
         
         # Filtering background for the reference image
@@ -592,6 +593,7 @@ class BaseDataset_t2i(Dataset):
         
 
         # ========= Training Target ===========
+        # import pdb; pdb.set_trace()
         tar_box_yyxx = get_bbox_from_mask(tar_mask)
         tar_box_yyxx = expand_bbox(tar_mask, tar_box_yyxx, ratio=[1.1,1.2]) #1.1  1.3
         assert self.check_region_size(tar_mask, tar_box_yyxx, ratio = max_ratio, mode = 'max') == True
@@ -605,6 +607,13 @@ class BaseDataset_t2i(Dataset):
         tar_box_yyxx = box_in_box(tar_box_yyxx, tar_box_yyxx_crop)
         y1,y2,x1,x2 = tar_box_yyxx
 
+        # import pdb; pdb.set_trace()
+        layout = np.zeros((tar_box_yyxx_crop[1]-tar_box_yyxx_crop[0], tar_box_yyxx_crop[3]-tar_box_yyxx_crop[2], 3), dtype=np.float32)
+        layout[y1:y2,x1:x2,:] = [1.0, 1.0, 1.0]
+        layout = pad_to_square(layout, pad_value = 0, random = False)
+        layout = cv2.resize(layout.astype(np.uint8), (512, 512), interpolation=cv2.INTER_AREA)
+         #/255 #-1.0
+        
         # Prepairing collage image
         ref_image_collage = cv2.resize(ref_image_collage.astype(np.uint8), (x2-x1, y2-y1))
         ref_mask_compose = cv2.resize(ref_mask_compose.astype(np.uint8), (x2-x1, y2-y1))
@@ -632,21 +641,36 @@ class BaseDataset_t2i(Dataset):
         # import pdb; pdb.set_trace()
         cropped_target_image = cv2.resize(cropped_target_image.astype(np.uint8), (512,512)).astype(np.float32)
         collage = cv2.resize(collage.astype(np.uint8), (512,512)).astype(np.float32)
-        collage_mask  = cv2.resize(collage_mask.astype(np.uint8), (512,512),  interpolation = cv2.INTER_NEAREST).astype(np.float32)
+        collage_mask  = cv2.resize(collage_mask.astype(np.uint8), (512,512),  interpolation = cv2.INTER_NEAREST).astype(np.float32) #可以直接当做layout
         collage_mask[collage_mask == 2] = -1
-        
+        # import pdb; pdb.set_trace()
         # Prepairing dataloader items
         masked_ref_image_aug = masked_ref_image_aug  / 255 
         # masked_ref_image_aug = masked_ref_image_aug  / 127.5 -1.0
         cropped_target_image = cropped_target_image / 127.5 - 1.0
-        collage = collage / 127.5 - 1.0 
+        collage = collage / 127.5 - 1.0         # [-1,1]之间
         collage = np.concatenate([collage, collage_mask[:,:,:1]  ] , -1)
         # import pdb; pdb.set_trace()
+        '''
         layout = pad_to_square(layout, pad_value = 0, random = False).astype(np.uint8)
         layout =  cv2.resize(layout.astype(np.uint8),(512,512)).astype(np.float32)
         #转灰度？
         layout = layout /127.5 - 1.0
+        '''
+        # import pdb; pdb.set_trace()
+        # layout = np.zeros((tar_image.shape[0], tar_image.shape[1], 3), dtype=np.uint8)
+        # layout[y1:y2,x1:x2,:] = [1.0, 1.0, 1.0]
+        # layout = layout *2.0 -1.0
         
+        # 4.11 下午
+        # ymin_new, xmin_new, ymax_new, xmax_new = self.seg2bbox(mask = collage_mask, ratio=0.0)
+        # layout = np.zeros((collage.shape[0], collage.shape[1], 3), dtype=np.float32)
+        # layout[ymin_new:ymax_new,xmin_new:ymax_new,:] = [1.0, 1.0, 1.0]
+
+
+        # layout = layout *2.0 -1.0
+        # layout = cv2.resize(layout.astype(np.uint8), (512,512)).astype(np.float32)
+
         # print('masked',masked_ref_image_aug.shape)
         # print('cropped_target_image', cropped_target_image.shape)
         # print('hint',collage.shape)

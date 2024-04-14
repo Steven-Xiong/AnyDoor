@@ -1,4 +1,4 @@
-# BSUB -o ./bjob_logs/flickr_train_4.4_tsv_only_txt.%J
+# BSUB -o ./bjob_logs/train_4.13_tsv_concatImageTxt_objstxtembedding_grad_fixed_selfattn_SBU.%J
 
 # BSUB -q gpu-compute
 # BSUB -m "a100s-2305.engr.wustl.edu" 
@@ -9,4 +9,4 @@
 source ~/.bashrc
 conda activate anydoor
 cd /project/osprey/scratch/x.zhexiao/edit/LayoutBooth/AnyDoor
-sh scripts/train_tsv.sh
+sh scripts/train.sh

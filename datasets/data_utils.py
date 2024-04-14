@@ -354,3 +354,35 @@ def extract_target_boundary(img, target_mask):
     scharr = np.max(scharr,-1).astype(np.float32)/255
     scharr = scharr *  target_mask.astype(np.float32)
     return scharr
+
+def seg2bbox(self, mask, ratio=0.1):  #borrow from instantbooth
+    mask = mask[:, :, 0]
+    h, w= mask.shape[0], mask.shape[1]
+    # crop exact bbox from mask. 
+    y, x = np.where(mask!=0)
+    xmin, xmax = np.min(x), np.max(x)+1
+    ymin, ymax = np.min(y), np.max(y)+1
+    tight_crop = (ymin, xmin, ymax, xmax)
+
+    # expand according to ratio.
+    ybox, xbox = ymax - ymin, xmax - xmin
+    ycenter, xcenter = (ymin + ymax) // 2, (xmin + xmax) // 2
+    ratio = min(ratio, h*1./ybox - 1., w*1./xbox - 1.)
+    ynew, xnew = int(ybox * (1+ratio)), int(xbox * (1+ratio))
+    ymin_new, ymax_new = max(ycenter - ynew//2, 0), min(ycenter + ynew//2, h)
+    xmin_new, xmax_new = max(xcenter - xnew//2, 0), min(xcenter + xnew//2, w)
+    expanded_crop = (ymin_new, xmin_new, ymax_new, xmax_new)
+    
+    # pad to square bbox.
+    ybox_new, xbox_new = ymax_new-ymin_new, xmax_new - xmin_new
+    if xbox_new < ybox_new:
+        pad = (ybox_new )//2
+        xmin_new, xmax_new = max(xcenter - pad, 0), min(xcenter + pad, w)
+    else:
+        pad = (xbox_new )//2
+        ymin_new, ymax_new = max(ycenter - pad, 0), min(ycenter + pad, h)
+    # cropped_mask_pad = mask[ymin_new:ymax_new, xmin_new:xmax_new]
+    # cv2.imwrite('cropped_mask_pad.png', cropped_mask_pad)
+    padded_crop = (ymin_new, xmin_new, ymax_new, xmax_new)
+
+    return padded_crop

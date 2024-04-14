@@ -349,19 +349,6 @@ class TSVDataset(BaseDataset):
         # import pdb; pdb.set_trace()
         #这块没有问题
         
-        if len(all_ref_images) != 0:
-            all_ref_images[0] = (all_ref_images[0] + 1.0) / 2
-            
-            all_ref_images[0] = all_ref_images[0].permute(1,2,0)
-            all_ref_images[0] = pad_to_square(all_ref_images[0], pad_value = 0, random = False)
-            try:
-                out['ref'] = torch.from_numpy(self.cond_transforms(image=all_ref_images[0])['image']).permute(2,0,1)
-            except:
-                out['ref'] = torch.zeros([3, 224, 224])
-            # print(out['ref'].shape)
-        else:
-            out['ref'] = torch.zeros([3, 224, 224])
-            # print(out['ref'].shape)
         
         # len(all_boxes:6)
         # Sort according to area and choose the largest N objects   
@@ -381,7 +368,21 @@ class TSVDataset(BaseDataset):
         layout_multi = torch.zeros(image_tensor.shape[1], image_tensor.shape[2], 3)
         # layout[int(boxes[i][1]*self.image_size):int(boxes[i][3]*self.image_size), int(boxes[i][0]*self.image_size):int(boxes[i][2]*self.image_size)] = [1.0, 1.0, 1.0]
         
-        
+        if len(all_ref_images) != 0:
+            ref_idx = wanted_idxs[0]
+            all_ref_images[ref_idx] = (all_ref_images[ref_idx] + 1.0) / 2
+            
+            all_ref_images[ref_idx] = all_ref_images[ref_idx].permute(1,2,0)
+            all_ref_images[ref_idx] = pad_to_square(all_ref_images[ref_idx], pad_value = 0, random = False)
+            try:
+                out['ref'] = torch.from_numpy(self.cond_transforms(image=all_ref_images[ref_idx])['image']).permute(2,0,1)
+            except:
+                out['ref'] = torch.zeros([3, 224, 224])
+            # print(out['ref'].shape)
+        else:
+            out['ref'] = torch.zeros([3, 224, 224])
+            # print(out['ref'].shape)
+
         for i, idx in enumerate(wanted_idxs):
             boxes[i] = all_boxes[idx]
             masks[i] = all_masks[idx]

@@ -68,10 +68,14 @@ Test:
   Lvis:
     image_dir: data/lvis_v1/val2017 
     json_path: data/lvis_v1/lvis_v1_val.json
+  
+  MVImageNet:
+    txt: ./datasets/Preprocess/mvimagenet.txt  #./datasets/Preprocess/mvimagenet_small.txt
+    image_dir: data/MVImgNet_full/
 
 # for GLIGEN
 train_dataset_names: 
-  FlickrGrounding:
+  Flickr_VG_SBUGrounding:
     which_layer_text: before
     which_layer_image: after_reproject
     image_size: 512
@@ -79,4 +83,15 @@ train_dataset_names:
     prob_use_caption: 0.5
     random_drop_embedding: both 
     random_crop: False
-    random_flip: True
+    random_flip: False
+
+# train_dataset_names: 
+#   FlickrGrounding:
+#     which_layer_text: before
+#     which_layer_image: after_reproject
+#     image_size: 512
+#     max_boxes_per_data: 8
+#     prob_use_caption: 0.5
+#     random_drop_embedding: both 
+#     random_crop: False
+#     random_flip: False

@@ -48,6 +48,7 @@ class MVImageNetDataset(BaseDataset_t2i):
         # import pdb; pdb.set_trace()
         self.get_clip_feature = get_clip_feature(model=self.clip_model, processor=self.processor,input=None, is_image=True)
         self.projection_matrix = torch.load('projection_matrix') #.cuda()
+        self.max_boxes = 8
         
     def __len__(self):
         image_count = 0
@@ -198,16 +199,18 @@ class MVImageNetDataset(BaseDataset_t2i):
         # import pdb; pdb.set_trace()
         bbox = self.seg2bbox(np.stack([tar_mask,tar_mask,tar_mask],-1))  #将seg map补全成mask
         # 创建一个全黑的图片
-        layout = np.zeros((tar_image.shape[0], tar_image.shape[1], 3), dtype=np.uint8)
-
+        
+        # print('bbox:',bbox)
         # # 已知的bbox坐标：(ymin, xmin, ymax, xmax)
         # padded_crop = (ymin_new, xmin_new, ymax_new, xmax_new)  # 请替换为实际的坐标值
         # 在bbox区域内填充为白色（或其他颜色）
         # 注意：颜色设置为(255, 255, 255)是白色，(R, G, B)格式
+
+        layout = np.zeros((tar_image.shape[0], tar_image.shape[1], 3), dtype=np.uint8)
         layout[bbox[0]:bbox[2], bbox[1]:bbox[3]] = [255, 255, 255]
 
 
-        item_with_collage = self.process_pairs_customized_mvimagenet(ref_image, ref_mask, tar_image, tar_mask,layout)        
+        item_with_collage = self.process_pairs_customized_mvimagenet(ref_image, ref_mask, tar_image, tar_mask,layout) #全部[1920,1080]      
         # import pdb; pdb.set_trace()
         # ref_image_resized = pad_to_square(ref_image, pad_value = 255, random = False)
         # ref_image_resized = cv2.resize(ref_image_resized.astype(np.uint8), (224,224)).astype(np.uint8) / 255
@@ -241,23 +244,23 @@ class MVImageNetDataset(BaseDataset_t2i):
             feature = ( feature / feature.norm() )  * 28.7 
             ref_embedding= feature.unsqueeze(0)
         
-        item_with_collage['image_embeddings'] = np.concatenate((ref_embedding.cpu().detach().numpy(), np.zeros((29, 768))), axis=0)
+        item_with_collage['image_embeddings'] = np.concatenate((ref_embedding.cpu().detach().numpy(), np.zeros((self.max_boxes-1, 768))), axis=0)
         
         
         # ref_embedding = self.get_clip_feature(input=torch.from_numpy(item_with_collage['ref']).permute(2,0,1), is_image=True).cpu().detach().numpy()
         # item_with_collage['image_embeddings'] = np.concatenate((ref_embedding, np.zeros((29, 768))), axis=0)
         
         # add new keys
-        item_with_collage['text_embeddings'] = np.zeros((30,768))
+        item_with_collage['text_embeddings'] = np.zeros((self.max_boxes,768))
         #除了第一个其他都是0？
-        array = np.zeros(30,dtype=np.int32)
+        array = np.zeros(self.max_boxes,dtype=np.int32)
         array[0] = 1
         item_with_collage['masks'] = array #.reshape(30,1)
         # nimport pdb; pdb.set_trace()
         # bbox需要归一化
         bbox = np.array(bbox,dtype=np.float32)
         bbox[0],bbox[1],bbox[2], bbox[3] = bbox[0]/tar_image.shape[0], bbox[1]/tar_image.shape[1], bbox[2]/tar_image.shape[0],bbox[3]/tar_image.shape[1]
-        item_with_collage['boxes'] = np.concatenate((bbox.reshape(1,4), np.zeros((29,4))), axis=0) 
+        item_with_collage['boxes'] = np.concatenate((bbox.reshape(1,4), np.zeros((self.max_boxes-1,4))), axis=0) 
         item_with_collage['layout_all'] = item_with_collage['layout']
         
         return item_with_collage

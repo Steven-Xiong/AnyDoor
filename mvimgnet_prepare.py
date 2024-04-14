@@ -56,7 +56,7 @@ image_data = [dataset5]
 # The ratio of each dataset is adjusted by setting the __len__ 
 dataset = ConcatDataset(image_data)
 
-# dataset.get_sample(1)
+dataset.get_sample(17)
 dataloader = DataLoader(dataset, num_workers=4, batch_size=batch_size, shuffle=True)
 # import pdb; pdb.set_trace()
 for idx, batch in enumerate(dataloader):
@@ -64,7 +64,14 @@ for idx, batch in enumerate(dataloader):
     print(batch.keys())
 
 
-    
     ref = batch['ref'][0]
+    gt = batch['jpg'][0]
+    layout = batch['layout'][0]
     save_path = batch['img_path'][0].replace('train2017','train_ref_max')
-    plt.imsave(save_path, ref.numpy())
+    save_path = '/project/osprey/scratch/x.zhexiao/edit/LayoutBooth/AnyDoor/output/mvimgnet_vis/'
+    name = str(idx)+'.png'
+
+    plt.imsave(save_path+'ref'+name, ref.numpy())
+    plt.imsave(save_path+'gt'+name, gt.numpy())
+    plt.imsave(save_path+'layout'+name, layout.numpy())
+    # plt.imsave(save_path+'ref'+name, gt.numpy())
