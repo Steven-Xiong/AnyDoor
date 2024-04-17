@@ -333,6 +333,7 @@ class ControlLDM(LatentDiffusion):
         self.position_net = PositionNet_txt(in_dim=768, out_dim=1024)
         self.position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024)  #试一试不对patch只对image ground
         self.position_net_textimage = PositionNet_dino_textimage(in_dim_txt=768, in_dim_image=1024, out_dim=1024)
+        self.position_net_textimage_original = PositionNet_txt_image(in_dim=768, out_dim=1024)
         # self.DinoFeatureExtractor = FrozenDinoV2EncoderFeatures
         # import pdb; pdb.set_trace()
         self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
@@ -383,8 +384,11 @@ class ControlLDM(LatentDiffusion):
         
         x, c_txt = super().get_input(batch, self.first_stage_key, cond_key='txt', *args, **kwargs) # [16, 77, 1024]
         # import pdb; pdb.set_trace()
-        c_txt_ground = self.position_net(batch['boxes'].float() , batch['masks'].float() , batch['text_embeddings'].float() ) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
+        c_txt_ground = self.position_net(batch['boxes'].float(), batch['masks'].float() , batch['text_embeddings'].float() ) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
         c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
+        # text-image joint grounding
+        c_txt_img_ground = self.position_net_textimage_original(batch['boxes'].float(), batch['masks'].float() ,batch['text_masks'].float() ,batch['image_masks'].float() ,batch['text_embeddings'].float(),batch['image_embeddings'].float())
+        
         #最大的bbox, bbox object 加 grounding
         x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs) #'jpg'  c.shape[16,257,1024] 原本就是jpg
         # import pdb; pdb.set_trace()
@@ -944,6 +948,7 @@ class PositionNet_txt_image(nn.Module):
   
 
     def forward(self, boxes, masks, text_masks, image_masks, text_embeddings, image_embeddings):
+        # import pdb; pdb.set_trace()
         B, N, _ = boxes.shape 
         masks = masks.unsqueeze(-1) # B*N*1 
         text_masks = text_masks.unsqueeze(-1) # B*N*1 
