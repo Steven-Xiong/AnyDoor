@@ -331,8 +331,8 @@ class ControlLDM(LatentDiffusion):
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
         self.position_net = PositionNet_txt(in_dim=768, out_dim=1024)
-        self.position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024)  #试一试不对patch只对image ground
-        self.position_net_textimage = PositionNet_dino_textimage(in_dim_txt=768, in_dim_image=1024, out_dim=1024)
+        # self.position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024)  #试一试不对patch只对image ground
+        # self.position_net_textimage = PositionNet_dino_textimage(in_dim_txt=768, in_dim_image=1024, out_dim=1024)
         # self.DinoFeatureExtractor = FrozenDinoV2EncoderFeatures
         # import pdb; pdb.set_trace()
         # self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
@@ -387,38 +387,7 @@ class ControlLDM(LatentDiffusion):
         c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
         #最大的bbox, bbox object 加 grounding
         x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs) #'jpg'  c.shape[16,257,1024] 原本就是jpg
-        # import pdb; pdb.set_trace()
-        image_embeddings_ref = self.DinoFeatureExtractor.encode(batch['ref'].permute(0,3,1,2).float())
-        # c_img_ground = self.position_net_image(batch['box_ref'], batch['image_mask_ref'], image_embeddings_ref) # [8, 1, 1024]
-        '''
-        c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
-        '''
-
-        '''
-        # import pdb; pdb.set_trace()
-        c_image_ground_new = self.position_net_image(batch['box_ref'], batch['image_mask_ref'], image_embeddings_ref)
-        import pdb; pdb.set_trace()
-        # 以下为text和image联合ground
-        c_textimage_ground = self.position_net_textimage(batch['box_ref'], batch['image_mask_ref'], batch['text_embeddings'].float(),image_embeddings_ref)
-        '''
-        # 3.31尝试：用原来的c
-        # import pdb; pdb.set_trace()
         
-        # 4.4 假如只用text grounding
-        
-        # c = torch.zeros(batch['jpg'].shape[0],257,1024).to(self.device)
-        # c = c_image_ground_new
-        
-        # import pdb; pdb.set_trace()
-        c_txt_ground1 = self.position_net(torch.zeros(batch['boxes'].shape).cuda(), torch.zeros(batch['masks'].shape).cuda(), torch.zeros(batch['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
-        self.txt_ground1 = c_txt_ground1[:,:1,:]
-        # c = torch.cat((c,c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
-
-        # add txt?
-        
-        #进行concat:
-        # c = torch.cat((c,c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
-        # import pdb; pdb.set_trace()
         c = torch.cat((c,c_txt),dim=1)  #[B,334,1024]
         # import pdb; pdb.set_trace()
         control = batch[self.control_key]  #'hint'  hint替换为layout? 本身就包含了layout信息
