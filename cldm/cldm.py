@@ -335,7 +335,7 @@ class ControlLDM(LatentDiffusion):
         self.position_net_textimage = PositionNet_dino_textimage(in_dim_txt=768, in_dim_image=1024, out_dim=1024)
         # self.DinoFeatureExtractor = FrozenDinoV2EncoderFeatures
         # import pdb; pdb.set_trace()
-        self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
+        # self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
         '''
         version = "openai/clip-vit-large-patch14"
         self.clip_model = CLIPModel.from_pretrained(version).cuda()
