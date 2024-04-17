@@ -1,4 +1,4 @@
-# BSUB -o ./bjob_logs/test_4.15_flickr_txt_imageconcat_obj_txtgrounding_grad_trainwithfickr_SBU.%J
+# BSUB -o ./bjob_logs/test_4.15_mvimgnet_txt_imageconcat_obj_txtgrounding_grad_trainwithfickr_SBU.%J
 
 # BSUB -q gpu-compute
 # BSUB -m "a40-2206.engr.wustl.edu" 
@@ -9,4 +9,4 @@
 source ~/.bashrc
 conda activate anydoor
 cd /project/osprey/scratch/x.zhexiao/edit/LayoutBooth/AnyDoor
-python run_inference_new1.py
+python run_inference_mvimgnet.py

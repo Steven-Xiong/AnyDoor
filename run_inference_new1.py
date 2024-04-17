@@ -473,7 +473,7 @@ if __name__ == '__main__':
     ddim_sampler = DDIMSampler(model)
 
     DConf = OmegaConf.load('./configs/datasets.yaml')
-    time = '4.13_trainwithSBU_epoch2'
+    time = '4.15_trainwithflicr+SBU_epoch1'
     dir_path = os.path.join('output',time)
     os.makedirs(dir_path,exist_ok=True)
     print('dir_path:',dir_path)
@@ -580,7 +580,7 @@ if __name__ == '__main__':
         cosine_similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
         # import pdb; pdb.set_trace()
         with torch.no_grad():
-            if i >500:
+            if i >1000:
                 break
             # gen_image = np.transpose(np.expand_dims(gen_image, axis=0), (0, 3, 1, 2))
             gen_image = np.transpose(torch.from_numpy(gen_image.astype(np.uint8)).unsqueeze(0),(0,3,1,2)) #.transpose(0,3,1,2)

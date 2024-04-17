@@ -1,4 +1,4 @@
-pretrained_model: lightning_logs/version_63/epoch=2-step=38825.ckpt
+pretrained_model: lightning_logs/version_65/epoch=1-step=30263.ckpt
 config_file: configs/anydoor.yaml
 save_memory: False
 

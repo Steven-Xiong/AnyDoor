@@ -180,6 +180,7 @@ class TSVDataset(BaseDataset):
                 max_images=None, # set as 30K used to eval
                 random_crop = False,
                 random_flip = True,
+                ref_zero = False,  # ref image 用0代替
                 ):
         super().__init__(random_crop, random_flip, image_size)
         self.tsv_path = tsv_path
@@ -190,6 +191,7 @@ class TSVDataset(BaseDataset):
         self.min_box_size = min_box_size
         self.max_boxes_per_data = max_boxes_per_data
         self.max_images = max_images
+        self.ref_zero = ref_zero
 
         assert which_layer_text in ['before','after']
         assert which_layer_image in ['after', 'after_renorm', 'after_reproject']
@@ -219,9 +221,11 @@ class TSVDataset(BaseDataset):
                 # A.RandomResizedCrop(self.size, self.size, scale=(0.9, 1.0)),
                 # A.SmallestMaxSize(max_size=size, p=1),
                 # A.CenterCrop(size, size),
-                A.Resize(224, 224),
-                A.HorizontalFlip(),
-                A.Rotate(limit=20),
+                
+                A.Resize(224, 224),   #用中间这三个
+                # A.HorizontalFlip(),
+                # A.Rotate(limit=20),
+                
                 # A.Blur(p=0.3),
                 # A.ElasticTransform(p=0.3),
                 ]
@@ -375,7 +379,10 @@ class TSVDataset(BaseDataset):
             all_ref_images[ref_idx] = all_ref_images[ref_idx].permute(1,2,0)
             all_ref_images[ref_idx] = pad_to_square(all_ref_images[ref_idx], pad_value = 0, random = False)
             try:
-                out['ref'] = torch.from_numpy(self.cond_transforms(image=all_ref_images[ref_idx])['image']).permute(2,0,1)
+                if not self.ref_zero:
+                    out['ref'] = torch.from_numpy(self.cond_transforms(image=all_ref_images[ref_idx])['image']).permute(2,0,1)
+                else:
+                    out['ref'] = torch.zeros([3, 224, 224])
             except:
                 out['ref'] = torch.zeros([3, 224, 224])
             # print(out['ref'].shape)

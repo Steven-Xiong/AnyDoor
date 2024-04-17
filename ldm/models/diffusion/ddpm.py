@@ -515,6 +515,7 @@ class DDPM(pl.LightningModule):
         return log
 
     def configure_optimizers(self):
+        # import pdb; pdb.set_trace()
         lr = self.learning_rate
         params = list(self.model.parameters())
         if self.learn_logvar:

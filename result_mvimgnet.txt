@@ -1,0 +1,8 @@
+
+clip_t_scores:26.59993
+clip_i_scores:0.8909097249274487
+dino_i_scores:0.751550343293291
+
+clip_t_scores:26.290188
+clip_i_scores:0.8897216954788605
+dino_i_scores:0.7514214446204347
