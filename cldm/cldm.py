@@ -384,11 +384,12 @@ class ControlLDM(LatentDiffusion):
         x, c_txt = super().get_input(batch, self.first_stage_key, cond_key='txt', *args, **kwargs) # [16, 77, 1024]
         # import pdb; pdb.set_trace()
         c_txt_ground = self.position_net(batch['boxes'].float() , batch['masks'].float() , batch['text_embeddings'].float() ) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
-        c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
+        # c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
         #最大的bbox, bbox object 加 grounding
-        x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs) #'jpg'  c.shape[16,257,1024] 原本就是jpg
+        # x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs) #'jpg'  c.shape[16,257,1024] 原本就是jpg
         
-        c = torch.cat((c,c_txt),dim=1)  #[B,334,1024]
+        # c = torch.cat((c,c_txt),dim=1)  #[B,334,1024]
+        c = c_txt
         # import pdb; pdb.set_trace()
         control = batch[self.control_key]  #'hint'  hint替换为layout? 本身就包含了layout信息
         
@@ -420,9 +421,9 @@ class ControlLDM(LatentDiffusion):
     @torch.no_grad()
     def get_unconditional_conditioning(self, N):
         # import pdb; pdb.set_trace()
-        uncond =  self.get_learned_conditioning([ torch.zeros((1,3,224,224)) ] * N)
-        uncond_txt = self.get_learned_conditioning_txt([""] * N)
-        uncond = torch.cat((uncond,uncond_txt),dim=1)
+        # uncond =  self.get_learned_conditioning([ torch.zeros((1,3,224,224)) ] * N)
+        # uncond_txt = self.get_learned_conditioning_txt([""] * N)
+        uncond = self.get_learned_conditioning_txt([""] * N) #torch.cat((uncond,uncond_txt),dim=1)
         
         # uncond = torch.cat([uncond, self.txt_ground1.cuda()],dim=1)
         # 3.31试：还原原来的

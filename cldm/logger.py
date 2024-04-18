@@ -72,6 +72,7 @@ class ImageLogger(Callback):
                 i=i+1       
             images['result_concat'] = results_concat  
             # print(images['result_concat'].shape)      
+            # import pdb; pdb.set_trace()
             self.log_local(pl_module.logger.save_dir, split, images,
                            pl_module.global_step, pl_module.current_epoch, batch_idx)
 
@@ -83,4 +84,4 @@ class ImageLogger(Callback):
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         if not self.disabled:
-            self.log_img(pl_module, batch, batch_idx, split="train")
+            self.log_img(pl_module, batch, batch_idx, split="train_no_ref")

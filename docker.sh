@@ -1,4 +1,4 @@
-# BSUB -o ./bjob_logs/train_4.16_tsv_concatImageTxt_objstxtembedding_grad_fixed_VG_ref_zero.%J
+# BSUB -o ./bjob_logs/train_4.17_tsv_concatImageTxt_objstxtembedding_grad_fixed_VG+sbu+flickr_noref.%J
 
 # BSUB -q gpu-compute
 # BSUB -m "a100s-2305.engr.wustl.edu" 
