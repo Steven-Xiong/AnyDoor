@@ -1,7 +1,7 @@
-# BSUB -o ./bjob_logs/train_4.16_tsv_concatImageTxt_objstxtembedding_grad_fixed_VG_ref_zero.%J
+# BSUB -o ./bjob_logs/train_4.17_tsv_concatImageTxt_objstxtembedding_grad_fixed_flickr+VG+sbu_text_image_grounding.%J
 
 # BSUB -q gpu-compute
-# BSUB -m "a100s-2305.engr.wustl.edu" 
+# BSUB -m "a100s-2306.engr.wustl.edu" 
 
 # BSUB -gpu "num=4:mode=shared:j_exclusive=yes:gmodel=NVIDIAA100_SXM4_80GB" 
 # BSUB -J anydoor
