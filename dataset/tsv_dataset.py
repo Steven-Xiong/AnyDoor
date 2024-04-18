@@ -310,7 +310,9 @@ class TSVDataset(BaseDataset):
         is_det = raw_item.get('is_det', False) # if it is from detection (such as o365), then we will make a pseudo caption
 
         out = {}
-
+        out['path'] =raw_item['file_name']
+        # import pdb; pdb.set_trace()
+        # out['keys'] =raw_item.keys()
         # -------------------- id and image ------------------- # 
         out['id'] = raw_item['data_id']
         image = raw_item['image']

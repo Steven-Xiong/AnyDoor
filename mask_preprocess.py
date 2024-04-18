@@ -1,4 +1,7 @@
-import pytorch_lightning as pl
+import sys  
+sys.path.append('..')
+
+# import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from dataset.tsv_dataset import TSVDataset    #这里修改
 from cldm.logger import ImageLogger
@@ -9,6 +12,8 @@ from omegaconf import OmegaConf
 
 from dataset.concat_dataset import ConCatDataset 
 from torch.utils.data.distributed import  DistributedSampler
+
+
 save_memory = False
 disable_verbosity()
 if save_memory:
@@ -16,26 +21,17 @@ if save_memory:
 
 # Configs
 # resume_path = 'checkpoints/control_sd21_ini.ckpt' #'path/to/weight'
-resume_path = 'lightning_logs/version_65/epoch=2-step=45395.ckpt'   #'checkpoints/epoch=1-step=8687.ckpt'
-batch_size = 16
-logger_freq = 200   #1000
+resume_path = 'checkpoints/epoch=1-step=8687.ckpt'
+batch_size = 1  #16
+logger_freq = 500   #1000
 learning_rate = 1e-5
 sd_locked = False
 only_mid_control = False
-n_gpus = 4
+n_gpus = 1
 accumulate_grad_batches=1
 
-# First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.
-model = create_model('./configs/anydoor.yaml').cpu()
-#这里要舍弃不用的key,val
-
-model.load_state_dict(load_state_dict(resume_path, location='cpu'),strict = False)  #设置strict = False
-model.learning_rate = learning_rate
-model.sd_locked = sd_locked
-model.only_mid_control = only_mid_control
-
 # Datasets
-# DConf = OmegaConf.load('./configs/datasets.yaml')
+DConf = OmegaConf.load('./configs/datasets.yaml')
 
 # dataset12 = TSVDataset(**DConf.Train.Lvis)
 
@@ -58,13 +54,39 @@ train_dataset_repeats = config.train_dataset_repeats if 'train_dataset_repeats' 
 dataset_train = ConCatDataset(config.train_dataset_names, 'DATA', train=True, repeats=train_dataset_repeats)
 # dataset_train.getitem(1)
 # import pdb; pdb.set_trace()
+config.distributed = False
+sampler = DistributedSampler(dataset_train, seed=123) if config.distributed else None 
+# dataloader = DataLoader(dataset_train,  batch_size=batch_size, 
+#                                             shuffle=(sampler is None),
+#                                             num_workers=config.workers, 
+#                                             pin_memory=True, 
+#                                             sampler=sampler)
 
-# config.distributed = True
-# sampler = DistributedSampler(dataset_train, seed=123) if config.distributed else None 
+# dataset.get_sample(1)
 
-dataloader = DataLoader(dataset_train, num_workers=8, batch_size=batch_size, shuffle=True)
-logger = ImageLogger(batch_frequency=logger_freq)
-trainer = pl.Trainer(gpus=n_gpus, strategy="ddp", precision=16, accelerator="gpu", callbacks=[logger], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
+dataloader = DataLoader(dataset_train, num_workers=4, batch_size=batch_size, shuffle=False)
 
-# Train!
-trainer.fit(model, dataloader)
+base_save_path = '/project/osprey/scratch/x.zhexiao/edit/LayoutBooth/AnyDoor/DATA/flickr_ref'
+for i, batch in enumerate(dataloader):
+    import pdb; pdb.set_trace()
+    print(batch.keys())
+    ref = batch['ref'][0]
+    name = batch['path'][0]
+    # print(batch['keys'][0])
+    
+    if i > 45:
+        
+        print(type(batch['ref']))
+        print(type(batch['jpg']))
+        print(type(batch['layout']))
+        print(batch['ref'][0].shape)
+        print(batch['jpg'][0].shape)
+        print(batch['layout'][0].shape)
+        print(batch['boxes'][0].shape)
+        print(batch['masks'][0].shape)
+
+    # plt.imsave(save_path, ref.numpy())
+    
+
+
+    
