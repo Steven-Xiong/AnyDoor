@@ -16,7 +16,7 @@ if save_memory:
 
 # Configs
 # resume_path = 'checkpoints/control_sd21_ini.ckpt' #'path/to/weight'
-resume_path = 'lightning_logs/version_65/epoch=2-step=45395.ckpt'   #'checkpoints/epoch=1-step=8687.ckpt'
+resume_path = 'lightning_logs/version_65/checkpoints/epoch=4-step=75659.ckpt'   #'checkpoints/epoch=1-step=8687.ckpt'
 batch_size = 16
 logger_freq = 200   #1000
 learning_rate = 1e-5
