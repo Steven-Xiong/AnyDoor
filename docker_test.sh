@@ -1,4 +1,4 @@
-# BSUB -o ./bjob_logs/test_4.15_flickr_txt_imageconcat_obj_txtgrounding_grad_trainwithfickr_SBU.%J
+# BSUB -o ./bjob_logs/test_4.21_nofref_testonsbu.%J
 
 # BSUB -q gpu-compute
 # BSUB -m "a40-2206.engr.wustl.edu" 

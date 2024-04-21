@@ -251,28 +251,28 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     c_image = model.get_learned_conditioning( clip_input )   # [1,257,1024]
     c_txt = model.get_learned_conditioning_txt(caption)      # [1,77,1024]
     position_net = PositionNet_txt(in_dim=768, out_dim=1024).cuda()
-    position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024).cuda()  #试一试不对patch只对image ground
+    # position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024).cuda()  #试一试不对patch只对image ground
     c_txt_ground = position_net(item['boxes'].cuda(), item['masks'].cuda(), item['text_embeddings'].cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
     
-    DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'}).cuda()
+    # DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'}).cuda()
 
-    image_embeddings_ref = DinoFeatureExtractor.encode(item['ref'].cuda())
-    c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
-    c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
+    # image_embeddings_ref = DinoFeatureExtractor.encode(item['ref'].cuda())
+    # c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
+    # c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
     # import pdb; pdb.set_trace()
     # c = torch.cat((c_image,c_txt),dim=1) 
 
     guess_mode = False
     H,W = 512,512
     
-    c_txt_ground1 = position_net(torch.zeros(item['boxes'].shape).cuda(), torch.zeros(item['masks'].shape).cuda(), torch.zeros(item['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
-    txt_ground1 = c_txt_ground1[:,:1,:]
+    # c_txt_ground1 = position_net(torch.zeros(item['boxes'].shape).cuda(), torch.zeros(item['masks'].shape).cuda(), torch.zeros(item['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
+    # txt_ground1 = c_txt_ground1[:,:1,:]
     # import pdb; pdb.set_trace()
-    c_image_ground_new = position_net_image(item['box_ref'].cuda(), item['image_mask_ref'].cuda(), image_embeddings_ref)
+    # c_image_ground_new = position_net_image(item['box_ref'].cuda(), item['image_mask_ref'].cuda(), image_embeddings_ref)
     # 3.31尝试：用原来的c
     # c = c_image_ground_new
     # c = c_image
-    c = torch.cat((c_image,c_txt),dim=1)
+    c = c_txt #torch.cat((c_image,c_txt),dim=1)
         
     control = control.to(device)
     c = c.to(device)
@@ -473,7 +473,7 @@ if __name__ == '__main__':
     ddim_sampler = DDIMSampler(model)
 
     DConf = OmegaConf.load('./configs/datasets.yaml')
-    time = '4.15_trainwithflicr+SBU_epoch1'
+    time = '4.21_noref_epoch2_SBU'
     dir_path = os.path.join('output',time)
     os.makedirs(dir_path,exist_ok=True)
     print('dir_path:',dir_path)
@@ -580,7 +580,7 @@ if __name__ == '__main__':
         cosine_similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
         # import pdb; pdb.set_trace()
         with torch.no_grad():
-            if i >1000:
+            if i >800:
                 break
             # gen_image = np.transpose(np.expand_dims(gen_image, axis=0), (0, 3, 1, 2))
             gen_image = np.transpose(torch.from_numpy(gen_image.astype(np.uint8)).unsqueeze(0),(0,3,1,2)) #.transpose(0,3,1,2)
