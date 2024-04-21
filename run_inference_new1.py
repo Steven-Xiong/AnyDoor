@@ -13,7 +13,7 @@ cv2.ocl.setUseOpenCL(False)
 import albumentations as A
 from omegaconf import OmegaConf
 from PIL import Image
-from cldm.cldm import PositionNet_txt,PositionNet_dino_image2,PositionNet_dino_image3
+from cldm.cldm import PositionNet_txt,PositionNet_dino_image2,PositionNet_dino_image3,PositionNet_txt_image
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 
 def aug_data_mask(image, mask):
@@ -250,25 +250,26 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     # import pdb; pdb.set_trace()
     c_image = model.get_learned_conditioning( clip_input )   # [1,257,1024]
     c_txt = model.get_learned_conditioning_txt(caption)      # [1,77,1024]
-    position_net = PositionNet_txt(in_dim=768, out_dim=1024).cuda()
-    position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024).cuda()  #试一试不对patch只对image ground
-    c_txt_ground = position_net(item['boxes'].cuda(), item['masks'].cuda(), item['text_embeddings'].cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
+    # position_net = PositionNet_txt(in_dim=768, out_dim=1024).cuda()
+    # position_net_image = PositionNet_dino_image3(in_dim=1024, out_dim=1024).cuda()  #试一试不对patch只对image ground
+    position_net_text_image = PositionNet_txt_image(in_dim=768, out_dim=1024).cuda()
+    # c_txt_ground = position_net(item['boxes'].cuda(), item['masks'].cuda(), item['text_embeddings'].cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
     
-    DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'}).cuda()
+    # DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'}).cuda()
 
-    image_embeddings_ref = DinoFeatureExtractor.encode(item['ref'].cuda())
-    c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
-    c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
+    # image_embeddings_ref = DinoFeatureExtractor.encode(item['ref'].cuda())
+    # c_image_ground = torch.cat([image_embeddings_ref, c_txt_ground[:,:1,:]],dim=1)  # 取第0个是因为对应最大的ref image
+    # c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
     # import pdb; pdb.set_trace()
     # c = torch.cat((c_image,c_txt),dim=1) 
 
     guess_mode = False
     H,W = 512,512
     
-    c_txt_ground1 = position_net(torch.zeros(item['boxes'].shape).cuda(), torch.zeros(item['masks'].shape).cuda(), torch.zeros(item['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
-    txt_ground1 = c_txt_ground1[:,:1,:]
+    # c_txt_ground1 = position_net(torch.zeros(item['boxes'].shape).cuda(), torch.zeros(item['masks'].shape).cuda(), torch.zeros(item['text_embeddings'].shape).cuda()) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
+    # txt_ground1 = c_txt_ground1[:,:1,:]
     # import pdb; pdb.set_trace()
-    c_image_ground_new = position_net_image(item['box_ref'].cuda(), item['image_mask_ref'].cuda(), image_embeddings_ref)
+    # c_image_ground_new = position_net_image(item['box_ref'].cuda(), item['image_mask_ref'].cuda(), image_embeddings_ref)
     # 3.31尝试：用原来的c
     # c = c_image_ground_new
     # c = c_image
@@ -278,11 +279,15 @@ def inference_single_image_new(item, guidance_scale = 5.0):
     c = c.to(device)
     # c_txt_all = c_txt_all.to(device)
     
-    c_txt_ground=c_txt_ground.to(device)
-    cond = {"c_concat": [control], "c_crossattn": [c], "objs" : [c_txt_ground]}  #4.3换一种测法
+    # c_txt_ground=c_txt_ground.to(device)
+    
+    c_txt_img_ground = position_net_text_image(item['boxes'].cuda(), item['masks'].cuda() ,item['text_masks'].cuda() ,item['image_masks'].cuda() ,item['text_embeddings'].cuda(),item['image_embeddings'].cuda())
+    
+    c_txt_img_ground = c_txt_img_ground.to(device)
+    cond = {"c_concat": [control], "c_crossattn": [c], "objs" : [c_txt_img_ground]}  #4.3换一种测法
     # import pdb; pdb.set_trace()
 
-    un_cond = {"c_concat": None if guess_mode else [control], "c_crossattn": [model.get_unconditional_conditioning(num_samples).to(device)],"objs": [c_txt_ground]}
+    un_cond = {"c_concat": None if guess_mode else [control], "c_crossattn": [model.get_unconditional_conditioning(num_samples).to(device)],"objs": [c_txt_img_ground]}
     shape = (4, H // 8, W // 8)
 
     if save_memory:
@@ -473,7 +478,7 @@ if __name__ == '__main__':
     ddim_sampler = DDIMSampler(model)
 
     DConf = OmegaConf.load('./configs/datasets.yaml')
-    time = '4.15_trainwithflicr+SBU_epoch1'
+    time = '4.21_train3data_epoch2_text_image_ground'
     dir_path = os.path.join('output',time)
     os.makedirs(dir_path,exist_ok=True)
     print('dir_path:',dir_path)
