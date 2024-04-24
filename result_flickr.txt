@@ -74,3 +74,11 @@ dino_i_scores:0.888025976821572
 clip_t_scores:28.98848
 clip_i_scores:0.9119898473525738
 dino_i_scores:0.9028824873782181
+
+clip_t_scores:28.003092
+clip_i_scores:0.8475543570503611
+dino_i_scores:0.715629106809556
+
+clip_t_scores:25.95863
+clip_i_scores:0.9186283107046838
+dino_i_scores:0.9009847246802651

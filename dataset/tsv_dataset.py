@@ -29,6 +29,29 @@ from datasets.data_utils import *
 def decode_base64_to_pillow(image_b64):
     return Image.open(BytesIO(base64.b64decode(image_b64))).convert('RGB')
 
+def decode_base64_to_pillow_mask(image_b64):
+    return Image.open(BytesIO(base64.b64decode(image_b64))).convert('L')
+
+def decode_base64_to_tensor_mask(image_b64):
+    # 解码 Base64 并读取为 PIL 图片
+    image = Image.open(BytesIO(base64.b64decode(image_b64)))
+    # 转换图片为灰度模式 'L'
+    image = image.convert('L')
+    # 将 PIL 图片转换为 NumPy 数组
+    image_array = np.array(image)
+    # 将 NumPy 数组转换为 PyTorch Tensor
+    tensor = torch.tensor(image_array)
+    # 改变 Tensor 的维度以符合 PyTorch 的期望格式 (C x H x W)
+    tensor = tensor.unsqueeze(0)  # 添加一个通道维度
+    return tensor
+def decode_base64_to_tensor(image_b64):
+    # 解码 Base64 字符串
+    image_data = base64.b64decode(image_b64)
+    # 使用 PIL 打开图片并转换为 RGB 模式
+    image = Image.open(BytesIO(image_data)).convert('RGB')
+    # 使用 torchvision 的 ToTensor 转换器将 PIL 图片转换为 PyTorch 张量
+    tensor = ToTensor()(image)
+    return tensor
 def decode_tensor_from_string(arr_str, use_tensor=True):
     arr = np.frombuffer(base64.b64decode(arr_str), dtype='float32')
     if use_tensor:
@@ -44,6 +67,21 @@ def decode_item(item):
         anno['text_embedding_before'] = decode_tensor_from_string(anno['text_embedding_before'])
         anno['image_embedding_after'] = decode_tensor_from_string(anno['image_embedding_after'])
         anno['text_embedding_after'] = decode_tensor_from_string(anno['text_embedding_after'])
+    return item
+
+def decode_item_withmask(item):
+    item = json.loads(item)
+    item['image'] = decode_base64_to_pillow(item['image'])
+
+    for anno in item['annos']:
+        anno['image_embedding_before'] = decode_tensor_from_string(anno['image_embedding_before'])
+        anno['text_embedding_before'] = decode_tensor_from_string(anno['text_embedding_before'])
+        anno['image_embedding_after'] = decode_tensor_from_string(anno['image_embedding_after'])
+        anno['text_embedding_after'] = decode_tensor_from_string(anno['text_embedding_after'])
+        import pdb; pdb.set_trace()
+        anno['ref_mask'] = decode_base64_to_tensor_mask(anno['ref_mask'])
+        anno['ref_img'] = decode_base64_to_tensor(anno['ref_img'])
+        anno['ref_box'] = decode_tensor_from_string(anno['ref_box'])
     return item
 
 def check_unique(images, fields):
@@ -181,6 +219,7 @@ class TSVDataset(BaseDataset):
                 random_crop = False,
                 random_flip = True,
                 ref_zero = False,  # ref image 用0代替
+                ref_mask = False,  # 用不用ref mask
                 ):
         super().__init__(random_crop, random_flip, image_size)
         self.tsv_path = tsv_path
@@ -192,6 +231,7 @@ class TSVDataset(BaseDataset):
         self.max_boxes_per_data = max_boxes_per_data
         self.max_images = max_images
         self.ref_zero = ref_zero
+        self.ref_mask = ref_mask
 
         assert which_layer_text in ['before','after']
         assert which_layer_image in ['after', 'after_renorm', 'after_reproject']
@@ -238,6 +278,11 @@ class TSVDataset(BaseDataset):
         # import pdb; pdb.set_trace()
         _, item = self.tsv_file[index] # data id, image
         item = decode_item(item)
+        return item
+    def get_item_from_tsv_withmask(self, index):
+        import pdb; pdb.set_trace()
+        _, item = self.tsv_file[index] # data id, image
+        item = decode_item_withmask(item)
         return item
 
     def mapping(self, image_embedding):
@@ -305,10 +350,12 @@ class TSVDataset(BaseDataset):
         
         if self.max_boxes_per_data > 99:
             assert False, "Are you sure setting such large number of boxes per image?"
-
-        raw_item = self.get_item_from_tsv(index)
+        
+        if self.ref_mask:
+            raw_item = self.get_item_from_tsv_withmask(index)
+        else:
+            raw_item = self.get_item_from_tsv(index)
         is_det = raw_item.get('is_det', False) # if it is from detection (such as o365), then we will make a pseudo caption
-
         out = {}
         out['path'] =raw_item['file_name']
         # import pdb; pdb.set_trace()
@@ -333,7 +380,7 @@ class TSVDataset(BaseDataset):
 
         text_embedding_name = 'text_embedding_before' if self.which_layer_text == 'before' else 'text_embedding_after'
         image_embedding_name = 'image_embedding_after'
-        
+        # import pdb; pdb.set_trace()
         for anno in annos:
             x, y, w, h = anno['bbox']
             valid, (x0, y0, x1, y1) = recalculate_box_and_verify_if_valid(x, y, w, h, trans_info, self.image_size, self.min_box_size)
@@ -391,7 +438,12 @@ class TSVDataset(BaseDataset):
         else:
             out['ref'] = torch.zeros([3, 224, 224])
             # print(out['ref'].shape)
-
+        # import pdb; pdb.set_trace()
+        if self.ref_mask:
+            ref_mask = annos[0]
+            mask_expanded = ref_mask.expand_as(out['ref'])
+            out['ref'] = out['ref'] * mask_expanded
+            
         for i, idx in enumerate(wanted_idxs):
             boxes[i] = all_boxes[idx]
             masks[i] = all_masks[idx]
@@ -494,7 +546,7 @@ class TSVDataset(BaseDataset):
                 out["caption"] = raw_item["caption"]
         else:
             out["caption"] = ""
-        out['txt'] = raw_item["caption"]
+        out['txt'] = out["caption"]
         
         return out
 

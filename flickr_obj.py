@@ -52,7 +52,7 @@ config = OmegaConf.load('configs/flickr_text_image.yaml')
 train_dataset_repeats = config.train_dataset_repeats if 'train_dataset_repeats' in config else None
 # ConCatDataset(config.train_dataset_names, 'DATA', train=True, repeats=train_dataset_repeats).getitem(1)
 dataset_train = ConCatDataset(config.train_dataset_names, 'DATA', train=True, repeats=train_dataset_repeats)
-# dataset_train.getitem(1)
+dataset_train.getitem(1)
 # import pdb; pdb.set_trace()
 config.distributed = False
 sampler = DistributedSampler(dataset_train, seed=123) if config.distributed else None 
@@ -62,7 +62,6 @@ sampler = DistributedSampler(dataset_train, seed=123) if config.distributed else
 #                                             pin_memory=True, 
 #                                             sampler=sampler)
 
-# dataset.get_sample(1)
 
 dataloader = DataLoader(dataset_train, num_workers=4, batch_size=batch_size, shuffle=False)
 
@@ -71,6 +70,7 @@ for i, batch in enumerate(dataloader):
     
     print(batch.keys())
     ref = batch['ref'][0]
+    import pdb; pdb.set_trace()
     if i > 45:
         import pdb; pdb.set_trace()
         print(type(batch['ref']))

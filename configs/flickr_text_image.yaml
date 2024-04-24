@@ -70,39 +70,39 @@ train_dataset_names:
   #   random_flip: False
   #   ref_zero: False
 
-  FlickrGrounding:
-    which_layer_text: before
-    which_layer_image: after_reproject
-    image_size: 512
-    max_boxes_per_data: 10
-    prob_use_caption: 0.5
-    random_drop_embedding: both 
-    random_crop: False
-    random_flip: False
-    ref_zero: False
+  # FlickrGrounding:
+  #   which_layer_text: before
+  #   which_layer_image: after_reproject
+  #   image_size: 512
+  #   max_boxes_per_data: 10
+  #   prob_use_caption: 0.5
+  #   random_drop_embedding: both 
+  #   random_crop: False
+  #   random_flip: False
+  #   ref_zero: False
     
 
-  VGGrounding:
-    which_layer_text: before
-    which_layer_image: after_reproject
-    image_size: 512
-    max_boxes_per_data: 10
-    prob_use_caption: 0.5
-    random_drop_embedding: both 
-    random_crop: False
-    random_flip: False
-    ref_zero: False
+  # VGGrounding:
+  #   which_layer_text: before
+  #   which_layer_image: after_reproject
+  #   image_size: 512
+  #   max_boxes_per_data: 10
+  #   prob_use_caption: 0.5
+  #   random_drop_embedding: both 
+  #   random_crop: False
+  #   random_flip: False
+  #   ref_zero: False
   
-  SBUGrounding:
-    which_layer_text: before
-    which_layer_image: after_reproject
-    image_size: 512
-    max_boxes_per_data: 10
-    prob_use_caption: 0.5
-    random_drop_embedding: both 
-    random_crop: False
-    random_flip: False
-    ref_zero: False
+  # SBUGrounding:
+  #   which_layer_text: before
+  #   which_layer_image: after_reproject
+  #   image_size: 512
+  #   max_boxes_per_data: 10
+  #   prob_use_caption: 0.5
+  #   random_drop_embedding: both 
+  #   random_crop: False
+  #   random_flip: False
+  #   ref_zero: False
   
   # CC3MGrounding:
   #   which_layer_text: before
@@ -115,7 +115,17 @@ train_dataset_names:
   #   random_flip: False
   #   ref_zero: False
 
-
+  COCODetection:
+    which_layer_text: before
+    which_layer_image: after_reproject
+    image_size: 512
+    max_boxes_per_data: 10
+    prob_use_caption: 0.5
+    random_drop_embedding: both 
+    random_crop: False
+    random_flip: False
+    ref_zero: False
+    ref_mask: True
 
 grounding_tokenizer_input:
   target: grounding_input.text_image_grounding_tokinzer_input.GroundingNetInput
