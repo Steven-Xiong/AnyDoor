@@ -348,7 +348,7 @@ class FrozenDinoV2EncoderFeatures(AbstractEncoder):
         tokens = features["x_norm_patchtokens"]       # [B,256,1536]
         image_features  = features["x_norm_clstoken"] 
         image_features = image_features.unsqueeze(1)  #  # [B,1,1536] 把这个拿出来？
-        hint = torch.cat([image_features,tokens],1) # 8,257,1024
+        hint = torch.cat([image_features,tokens],1) # 8,257,1024  cls token是第一个token
         hint = self.projector(hint)
         image_features = self.projector(image_features)
         return image_features 

@@ -17,7 +17,19 @@ class DatasetCatalog:
             ),   # add test params
         }
 
+         # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - # 
 
+
+        self.COCODetection = {   
+            "target": "dataset.tsv_dataset.TSVDataset",
+            "train_params": dict(
+                tsv_path=os.path.join(ROOT,'GROUNDING/coco_tsv_train/coco_train.tsv'),
+            ),
+            "val_params":dict(
+                tsv_path=os.path.join(ROOT,'GROUNDING/coco_tsv_val/coco_val.tsv'), #10有问题？
+            ),   # add test params
+        }
+        
         # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - # 
 
 
@@ -156,8 +168,3 @@ class DatasetCatalog:
                 caption_path = os.path.join(ROOT,'ADE/ade_train_images_cation.json'),
             ),
         }
-
-
-
-
-
