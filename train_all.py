@@ -62,7 +62,7 @@ dataset_train = ConCatDataset(config.train_dataset_names, 'DATA', train=True, re
 # config.distributed = True
 # sampler = DistributedSampler(dataset_train, seed=123) if config.distributed else None 
 
-dataloader = DataLoader(dataset_train, num_workers=8, batch_size=batch_size, shuffle=True)
+dataloader = DataLoader(dataset_train, num_workers=4, batch_size=batch_size, shuffle=True)
 logger = ImageLogger(batch_frequency=logger_freq)
 trainer = pl.Trainer(gpus=n_gpus, strategy="ddp", precision=16, accelerator="gpu", callbacks=[logger], progress_bar_refresh_rate=1, accumulate_grad_batches=accumulate_grad_batches)
 

@@ -69,9 +69,9 @@ base_save_path = '/project/osprey/scratch/x.zhexiao/edit/LayoutBooth/AnyDoor/DAT
 for i, batch in enumerate(dataloader):
     
     print(batch.keys())
-    ref = batch['ref'][0]
-    import pdb; pdb.set_trace()
-    if i > 45:
+    # ref = batch['ref'][0]
+    # import pdb; pdb.set_trace()
+    if i > 10:
         import pdb; pdb.set_trace()
         print(type(batch['ref']))
         print(type(batch['jpg']))

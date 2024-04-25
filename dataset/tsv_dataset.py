@@ -40,7 +40,7 @@ def decode_base64_to_tensor_mask(image_b64):
     # 将 PIL 图片转换为 NumPy 数组
     image_array = np.array(image)
     # 将 NumPy 数组转换为 PyTorch Tensor
-    tensor = torch.tensor(image_array)
+    tensor = torch.tensor(image_array)/255
     # 改变 Tensor 的维度以符合 PyTorch 的期望格式 (C x H x W)
     tensor = tensor.unsqueeze(0)  # 添加一个通道维度
     return tensor
@@ -50,7 +50,7 @@ def decode_base64_to_tensor(image_b64):
     # 使用 PIL 打开图片并转换为 RGB 模式
     image = Image.open(BytesIO(image_data)).convert('RGB')
     # 使用 torchvision 的 ToTensor 转换器将 PIL 图片转换为 PyTorch 张量
-    tensor = ToTensor()(image)
+    tensor = transforms.ToTensor()(image)
     return tensor
 def decode_tensor_from_string(arr_str, use_tensor=True):
     arr = np.frombuffer(base64.b64decode(arr_str), dtype='float32')
@@ -58,6 +58,23 @@ def decode_tensor_from_string(arr_str, use_tensor=True):
         arr = torch.from_numpy(arr)
     return arr
 
+class DeNormalize(object):
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+        
+        Returns:
+            Tensor: Denormalized image.
+        """
+        for t, m, s in zip(tensor, self.mean, self.std):
+            t.mul_(s).add_(m)  # 直接在原张量上进行操作
+        return tensor
+    
 def decode_item(item):
     item = json.loads(item)
     item['image'] = decode_base64_to_pillow(item['image'])
@@ -78,9 +95,9 @@ def decode_item_withmask(item):
         anno['text_embedding_before'] = decode_tensor_from_string(anno['text_embedding_before'])
         anno['image_embedding_after'] = decode_tensor_from_string(anno['image_embedding_after'])
         anno['text_embedding_after'] = decode_tensor_from_string(anno['text_embedding_after'])
-        import pdb; pdb.set_trace()
-        anno['ref_mask'] = decode_base64_to_tensor_mask(anno['ref_mask'])
-        anno['ref_img'] = decode_base64_to_tensor(anno['ref_img'])
+        # import pdb; pdb.set_trace()
+        anno['ref_mask'] = decode_base64_to_tensor_mask(anno['ref_mask'])  #【1,224,224】,0-225
+        anno['ref_img'] = decode_base64_to_tensor(anno['ref_img'])  #[3,224,224], 0-1
         anno['ref_box'] = decode_tensor_from_string(anno['ref_box'])
     return item
 
@@ -270,7 +287,7 @@ class TSVDataset(BaseDataset):
                 # A.ElasticTransform(p=0.3),
                 ]
             )
-
+        self.denormalize = DeNormalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711])
     def total_images(self):
         return len(self)
 
@@ -280,7 +297,7 @@ class TSVDataset(BaseDataset):
         item = decode_item(item)
         return item
     def get_item_from_tsv_withmask(self, index):
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         _, item = self.tsv_file[index] # data id, image
         item = decode_item_withmask(item)
         return item
@@ -375,6 +392,10 @@ class TSVDataset(BaseDataset):
         all_text_embeddings = []
         all_image_embeddings = []
         all_ref_images = []
+        
+        if self.ref_mask:
+            all_ref_images_original = []
+            all_ref_masks = []
         if is_det:
             all_category_names = []
 
@@ -399,6 +420,9 @@ class TSVDataset(BaseDataset):
                 all_image_embeddings.append(  self.mapping(anno[image_embedding_name])  )
                 if is_det:
                     all_category_names.append(anno["category_name"])
+                if self.ref_mask:
+                    all_ref_images_original.append(anno['ref_img'])
+                    all_ref_masks.append(anno['ref_mask'])
         # import pdb; pdb.set_trace()
         #这块没有问题
         
@@ -421,28 +445,46 @@ class TSVDataset(BaseDataset):
         layout_multi = torch.zeros(image_tensor.shape[1], image_tensor.shape[2], 3)
         # layout[int(boxes[i][1]*self.image_size):int(boxes[i][3]*self.image_size), int(boxes[i][0]*self.image_size):int(boxes[i][2]*self.image_size)] = [1.0, 1.0, 1.0]
         
-        if len(all_ref_images) != 0:
-            ref_idx = wanted_idxs[0]
-            all_ref_images[ref_idx] = (all_ref_images[ref_idx] + 1.0) / 2
-            
-            all_ref_images[ref_idx] = all_ref_images[ref_idx].permute(1,2,0)
-            all_ref_images[ref_idx] = pad_to_square(all_ref_images[ref_idx], pad_value = 0, random = False)
-            try:
-                if not self.ref_zero:
-                    out['ref'] = torch.from_numpy(self.cond_transforms(image=all_ref_images[ref_idx])['image']).permute(2,0,1)
-                else:
-                    out['ref'] = torch.zeros([3, 224, 224])
-            except:
-                out['ref'] = torch.zeros([3, 224, 224])
-            # print(out['ref'].shape)
-        else:
-            out['ref'] = torch.zeros([3, 224, 224])
-            # print(out['ref'].shape)
         # import pdb; pdb.set_trace()
-        if self.ref_mask:
-            ref_mask = annos[0]
-            mask_expanded = ref_mask.expand_as(out['ref'])
-            out['ref'] = out['ref'] * mask_expanded
+        if self.ref_mask:  #直接读tsv里面的ref image并加mask, coco用
+            if len(all_ref_images) != 0:
+                ref_idx = wanted_idxs[0]
+                # import pdb; pdb.set_trace()
+                ref_image = all_ref_images_original[ref_idx]
+                ref_mask = all_ref_masks[ref_idx] > 0.5
+                mask_expanded = ref_mask.expand_as(ref_image)
+                ref_image = ref_image * mask_expanded
+                ref_image = ref_image.permute(1,2,0).numpy()
+                try:
+                    if not self.ref_zero:
+                        out['ref'] = torch.from_numpy(self.cond_transforms(image=ref_image)['image']).permute(2,0,1)
+                        # out['ref'] = self.denormalize(out['ref'])
+                    else:
+                        out['ref'] = torch.zeros([3, 224, 224])
+                except:
+                    out['ref'] = torch.zeros([3, 224, 224])
+            else:
+                out['ref'] = torch.zeros([3, 224, 224])
+        else:
+            if len(all_ref_images) != 0:
+                # import pdb; pdb.set_trace()
+                ref_idx = wanted_idxs[0]
+                all_ref_images[ref_idx] = (all_ref_images[ref_idx] + 1.0) / 2
+                
+                all_ref_images[ref_idx] = all_ref_images[ref_idx].permute(1,2,0)
+                all_ref_images[ref_idx] = pad_to_square(all_ref_images[ref_idx], pad_value = 0, random = False)
+                try:
+                    if not self.ref_zero:
+                        out['ref'] = torch.from_numpy(self.cond_transforms(image=all_ref_images[ref_idx])['image']).permute(2,0,1)
+                    else:
+                        out['ref'] = torch.zeros([3, 224, 224])
+                except:
+                    out['ref'] = torch.zeros([3, 224, 224])
+                # print(out['ref'].shape)
+            else:
+                out['ref'] = torch.zeros([3, 224, 224])
+                # print(out['ref'].shape)
+        
             
         for i, idx in enumerate(wanted_idxs):
             boxes[i] = all_boxes[idx]
