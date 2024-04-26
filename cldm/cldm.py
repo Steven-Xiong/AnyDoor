@@ -335,7 +335,7 @@ class ControlLDM(LatentDiffusion):
         # self.position_net_textimage = PositionNet_dino_textimage(in_dim_txt=768, in_dim_image=1024, out_dim=1024)
         # self.DinoFeatureExtractor = FrozenDinoV2EncoderFeatures
         # import pdb; pdb.set_trace()
-        # self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2Encoder', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
+        self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2EncoderFeatures', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
         '''
         version = "openai/clip-vit-large-patch14"
         self.clip_model = CLIPModel.from_pretrained(version).cuda()
@@ -384,12 +384,15 @@ class ControlLDM(LatentDiffusion):
         x, c_txt = super().get_input(batch, self.first_stage_key, cond_key='txt', *args, **kwargs) # [16, 77, 1024]
         # import pdb; pdb.set_trace()
         c_txt_ground = self.position_net(batch['boxes'].float() , batch['masks'].float() , batch['text_embeddings'].float() ) #新维度 [B, 30, 1024], grounding token, 30是允许的最多bbox数
-        c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
+        # c_txt_all = torch.cat((c_txt,c_txt_ground ),dim=1)  #[B,334,1024]
         #最大的bbox, bbox object 加 grounding
         x, c = super().get_input(batch, self.first_stage_key, *args, **kwargs) #'jpg'  c.shape[16,257,1024] 原本就是jpg
         
         c = torch.cat((c,c_txt),dim=1)  #[B,334,1024]
         # import pdb; pdb.set_trace()
+        c_image_ground = self.DinoFeatureExtractor.encode(batch['ref'].permute(0,3,1,2).float()) #[4,1,1024]
+        c_ground = torch.cat((c_txt_ground,c_image_ground ),dim=1)  # text 和dinov2 global feature joint grounding
+
         control = batch[self.control_key]  #'hint'  hint替换为layout? 本身就包含了layout信息
         
         if bs is not None:
@@ -398,7 +401,7 @@ class ControlLDM(LatentDiffusion):
         control = einops.rearrange(control, 'b h w c -> b c h w')
         control = control.to(memory_format=torch.contiguous_format).float() #([B, 4, 512, 512])
         self.time_steps = batch['time_steps']
-        return x, dict(c_crossattn=[c], c_concat=[control], objs = [c_txt_ground])  # 3.23 是不是ground的问题？不拿c_txt_all试 # add ground
+        return x, dict(c_crossattn=[c], c_concat=[control], objs = [c_ground])  # 3.23 是不是ground的问题？不拿c_txt_all试 # add ground
 
     # TODO: 3.14 需要在sample函数中加上Objs?
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):

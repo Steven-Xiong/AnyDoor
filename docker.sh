@@ -1,4 +1,4 @@
-# BSUB -o ./bjob_logs/train_4.22_tsv_concatImageTxt_objstxtembedding_grad_fixed_COCO.%J
+# BSUB -o ./bjob_logs/train_4.25_tsv_concatImageTxt_textdinogrounding_grad_fixed_COCO.%J
 
 # BSUB -q gpu-compute
 # BSUB -m "a100s-2305.engr.wustl.edu" 
