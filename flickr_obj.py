@@ -52,7 +52,7 @@ config = OmegaConf.load('configs/flickr_text_image.yaml')
 train_dataset_repeats = config.train_dataset_repeats if 'train_dataset_repeats' in config else None
 # ConCatDataset(config.train_dataset_names, 'DATA', train=True, repeats=train_dataset_repeats).getitem(1)
 dataset_train = ConCatDataset(config.train_dataset_names, 'DATA', train=True, repeats=train_dataset_repeats)
-dataset_train.getitem(1)
+dataset_train.getitem(11)
 # import pdb; pdb.set_trace()
 config.distributed = False
 sampler = DistributedSampler(dataset_train, seed=123) if config.distributed else None 

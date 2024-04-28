@@ -22,7 +22,7 @@ import albumentations as A
 import sys
 sys.path.append("../datasets")
 from datasets.data_utils import *
-
+import matplotlib.pyplot as plt
 
 
 # borrow from GLIGEN
@@ -34,13 +34,14 @@ def decode_base64_to_pillow_mask(image_b64):
 
 def decode_base64_to_tensor_mask(image_b64):
     # 解码 Base64 并读取为 PIL 图片
-    image = Image.open(BytesIO(base64.b64decode(image_b64)))
+    # import pdb; pdb.set_trace()
+    image = Image.open(BytesIO(base64.b64decode(image_b64))).convert('L')
     # 转换图片为灰度模式 'L'
-    image = image.convert('L')
+    # image = image.convert('L')
     # 将 PIL 图片转换为 NumPy 数组
     image_array = np.array(image)
     # 将 NumPy 数组转换为 PyTorch Tensor
-    tensor = torch.tensor(image_array)/255
+    tensor = torch.tensor(image_array)/255     #看要不要除以255
     # 改变 Tensor 的维度以符合 PyTorch 的期望格式 (C x H x W)
     tensor = tensor.unsqueeze(0)  # 添加一个通道维度
     return tensor
@@ -421,6 +422,7 @@ class TSVDataset(BaseDataset):
                 if is_det:
                     all_category_names.append(anno["category_name"])
                 if self.ref_mask:
+                    # import pdb; pdb.set_trace()
                     all_ref_images_original.append(anno['ref_img'])
                     all_ref_masks.append(anno['ref_mask'])
         # import pdb; pdb.set_trace()
@@ -451,9 +453,25 @@ class TSVDataset(BaseDataset):
                 ref_idx = wanted_idxs[0]
                 # import pdb; pdb.set_trace()
                 ref_image = all_ref_images_original[ref_idx]
+                
+                # fig, ax = plt.subplots()
+                # ax.imshow(ref_image.permute(1,2,0))
+                # ax.axis('off')
+                # plt.savefig('ref.png',dpi=100,bbox_inches='tight', pad_inches=0)
+                # fig, ax = plt.subplots()
+                # cax = ax.imshow(all_ref_masks[ref_idx].squeeze(0), cmap='gray')  # 使用灰度颜色映射
+                # ax.axis('off')
+                # plt.savefig('mask.png',dpi=100,bbox_inches='tight', pad_inches=0)
+                
                 ref_mask = all_ref_masks[ref_idx] > 0.5
                 mask_expanded = ref_mask.expand_as(ref_image)
                 ref_image = ref_image * mask_expanded
+                
+                # fig, ax = plt.subplots()
+                # ax.imshow(ref_image.permute(1,2,0))
+                # ax.axis('off')
+                # plt.savefig('ref_masked.png',dpi=100,bbox_inches='tight', pad_inches=0)
+                
                 ref_image = ref_image.permute(1,2,0).numpy()
                 try:
                     if not self.ref_zero:
