@@ -336,6 +336,7 @@ class ControlLDM(LatentDiffusion):
         # self.DinoFeatureExtractor = FrozenDinoV2EncoderFeatures
         # import pdb; pdb.set_trace()
         self.DinoFeatureExtractor = instantiate_from_config(config={'target': 'ldm.modules.encoders.modules.FrozenDinoV2EncoderFeatures', 'weight': 'checkpoints/dinov2_vitg14_pretrain.pth'})
+        self.position_net_text_dino = PositionNet_txt_dino(in_dim_txt=768, in_dim_image=1024, out_dim=1024)
         '''
         version = "openai/clip-vit-large-patch14"
         self.clip_model = CLIPModel.from_pretrained(version).cuda()
@@ -390,8 +391,12 @@ class ControlLDM(LatentDiffusion):
         
         c = torch.cat((c,c_txt),dim=1)  #[B,334,1024]
         # import pdb; pdb.set_trace()
-        c_image_ground = self.DinoFeatureExtractor.encode(batch['ref'].permute(0,3,1,2).float()) #[4,1,1024]
-        c_ground = torch.cat((c_txt_ground,c_image_ground ),dim=1)  # text 和dinov2 global feature joint grounding
+        ref_embedding = self.DinoFeatureExtractor.encode(batch['ref'].permute(0,3,1,2).float()) #[4,1,1024]
+        # c_ground = torch.cat((c_txt_ground,c_image_ground ),dim=1)  # text 和dinov2 global feature joint grounding
+        
+        ref_ground = self.position_net_text_dino(batch['boxes'].float(), batch['masks'].float(), batch['text_masks'], batch['image_masks'], batch['text_embeddings'], batch['image_embeddings'],ref_embedding, batch['box_ref'])
+        c_ground = torch.cat((c_txt_ground,ref_ground ),dim=1)
+        
 
         control = batch[self.control_key]  #'hint'  hint替换为layout? 本身就包含了layout信息
         
@@ -525,7 +530,7 @@ class ControlLDM(LatentDiffusion):
         samples, intermediates = ddim_sampler.sample(ddim_steps, batch_size, shape, cond, verbose=False, **kwargs)
         return samples, intermediates
 
-    def configure_optimizers(self):
+    def configure_optimizers(self):   #设置需要训练哪些参数
         lr = self.learning_rate
         # import pdb; pdb.set_trace()
         params = list(self.control_model.parameters())
@@ -536,6 +541,9 @@ class ControlLDM(LatentDiffusion):
             params += list(self.cond_stage_model.projector.parameters()) #这里是针对dinov2加的
         except:
             pass
+        #  5.20 add positionnet parameters 重要！
+        params += list(self.position_net_text_dino.parameters())
+        
         opt = torch.optim.AdamW(params, lr=lr)
         return opt
 
@@ -941,3 +949,66 @@ class PositionNet_txt_image(nn.Module):
 
         assert objs.shape == torch.Size([B,N*2,self.out_dim])        
         return objs
+    
+
+class PositionNet_txt_dino(nn.Module):
+    def __init__(self, in_dim_txt, in_dim_image, out_dim, fourier_freqs=8):
+        super().__init__()
+        self.in_dim_txt = in_dim_txt
+        self.in_dim_image = in_dim_image
+        self.out_dim = out_dim 
+        # import pdb; pdb.set_trace()
+        self.fourier_embedder = FourierEmbedder(num_freqs=fourier_freqs)
+        self.position_dim = fourier_freqs*2*4 # 2 is sin&cos, 4 is xyxy 
+
+        # -------------------------------------------------------------- #
+        self.linears_text = nn.Sequential(
+            nn.Linear( self.in_dim_txt + self.position_dim, 512),
+            nn.SiLU(),
+            # nn.Linear( 512, 512),
+            # nn.SiLU(),
+            nn.Linear(512, out_dim),
+        )
+
+        self.linears_image = nn.Sequential(
+            nn.Linear( self.in_dim_image + self.position_dim, 512),
+            nn.SiLU(),
+            # nn.Linear( 512, 512),
+            # nn.SiLU(),
+            nn.Linear(512, out_dim),
+        )
+        
+        # -------------------------------------------------------------- #
+        self.null_text_feature = torch.nn.Parameter(torch.zeros([self.in_dim_txt]))
+        self.null_image_feature = torch.nn.Parameter(torch.zeros([self.in_dim_image]))
+        self.null_position_feature = torch.nn.Parameter(torch.zeros([self.position_dim]))
+  
+
+    def forward(self, boxes, masks, text_masks, image_masks, text_embeddings, image_embeddings,ref_embeddings, ref_box):
+        B, N, _ = boxes.shape 
+        masks = masks.unsqueeze(-1) # B*N*1 
+        text_masks = text_masks.unsqueeze(-1) # B*N*1 
+        image_masks = image_masks.unsqueeze(-1) # B*N*1
+        # import pdb; pdb.set_trace()
+        # embedding position (it may includes padding as placeholder)
+        xyxy_embedding = self.fourier_embedder(boxes) # B*N*4 --> B*N*C
+        xyxy_embedding_ref = self.fourier_embedder(ref_box)
+
+        # learnable null embedding 
+        text_null  = self.null_text_feature.view(1,1,-1) # 1*1*C  (C=768)
+        image_null = self.null_image_feature.view(1,1,-1) # 1*1*C
+        xyxy_null  = self.null_position_feature.view(1,1,-1) # 1*1*C
+
+        # replace padding with learnable null embedding 
+        
+        text_embeddings  = text_embeddings*text_masks  + (1-text_masks)*text_null       # [2,30,768]
+        # image_embeddings = image_embeddings*image_masks + (1-image_masks)*image_null    # [2,30,768]
+        xyxy_embedding = xyxy_embedding*masks + (1-masks)*xyxy_null                     # [2, 30, 64]
+
+        objs_text  = self.linears_text(  torch.cat([text_embeddings, xyxy_embedding], dim=-1)  ) # [2, 30, 768]
+        objs_image = self.linears_image( torch.cat([ref_embeddings,xyxy_embedding_ref], dim=-1)  ) # [2, 1, 768]
+        objs = torch.cat( [objs_text,objs_image], dim=1 )  # [2, 30, 768]
+
+        # assert objs.shape == torch.Size([B,N*2,self.out_dim])        
+        return objs
+

@@ -26,12 +26,12 @@ if save_memory:
 # Configs
 # resume_path = 'checkpoints/control_sd21_ini.ckpt' #'path/to/weight'
 resume_path = 'checkpoints/epoch=1-step=8687.ckpt'
-batch_size = 16 #16
+batch_size = 4 #16
 logger_freq = 100   #1000
 learning_rate = 1e-5
 sd_locked = False
 only_mid_control = False
-n_gpus = 4
+n_gpus = 1
 accumulate_grad_batches=1
 
 # First use cpu to load models. Pytorch Lightning will automatically move it to GPUs.

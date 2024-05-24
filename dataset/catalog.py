@@ -23,7 +23,7 @@ class DatasetCatalog:
         self.COCODetection = {   
             "target": "dataset.tsv_dataset.TSVDataset",
             "train_params": dict(
-                tsv_path=os.path.join(ROOT,'GROUNDING/coco_tsv_val_sam1/coco_val.tsv'),
+                tsv_path=os.path.join(ROOT,'GROUNDING/coco_tsv_train/coco_train.tsv'),
             ),
             "val_params":dict(
                 tsv_path=os.path.join(ROOT,'GROUNDING/coco_tsv_val/coco_val.tsv'), #10有问题？

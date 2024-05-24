@@ -1,10 +1,9 @@
-# BSUB -o ./bjob_logs/test_4.23_txt_imageconcat_obj_txtgrounding_grad_trainwithcoco_testonflickr.%J
+# BSUB -o ./bjob_logs/test_4.29_txt_imageconcat_obj_txtgrounding_grad_trainwithcoco_testoncoco.%J
 
 # BSUB -q gpu-compute
-# BSUB -m "a40-2206.engr.wustl.edu" 
 
 # BSUB -gpu "num=1:mode=shared:j_exclusive=yes:gmodel=NVIDIAA40" 
-# BSUB -J anydoor
+# BSUB -J anydoor_test
 
 source ~/.bashrc
 conda activate anydoor

@@ -125,7 +125,7 @@ train_dataset_names:
     random_crop: False
     random_flip: False
     ref_zero: False
-    ref_mask: True
+    ref_mask: False
 
 grounding_tokenizer_input:
   target: grounding_input.text_image_grounding_tokinzer_input.GroundingNetInput
